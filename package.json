@@ -30,6 +30,10 @@
     "dist:mac": "npm run build:prod && electron-builder --mac --publish=never",
     "dist:win": "npm run build:prod && electron-builder --win --publish=never",
     "dist:linux": "npm run build:prod && electron-builder --linux --publish=never",
+    "publish:mac": "npm run build:prod && electron-builder --mac --publish=always",
+    "publish:win": "npm run build:prod && electron-builder --win --publish=always",
+    "publish:linux": "npm run build:prod && electron-builder --linux --publish=always",
+    "publish:all": "npm run build:prod && electron-builder --publish=always",
     "postinstall": "electron-builder install-app-deps",
     "migrate:add-version": "node scripts/add-version-to-users.js"
   },
