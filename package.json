@@ -2,6 +2,11 @@
   "name": "font-inspector",
   "version": "0.1.0",
   "private": true,
+  "description": "A comprehensive font analysis tool for web developers and designers",
+  "author": {
+    "name": "Kimmy Kim",
+    "email": "kimmykimcompany@gmail.com"
+  },
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
@@ -16,10 +21,15 @@
     "test:api": "node src/server/run-tests.js --api-only",
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run build-electron\" \"wait-on dist-electron/main.js && cross-env NODE_ENV=development electron .\"",
-    "electron:pack": "npm run build && npm run build-electron && electron-builder",
-    "electron:dist": "npm run build && npm run build-electron && electron-builder --publish=never",
+    "electron:pack": "npm run build:all && electron-builder",
+    "electron:dist": "npm run build:all && electron-builder --publish=never",
     "build-electron": "tsc -p electron/tsconfig.json",
-    "build:electron": "npm run build && npm run build-electron && electron-builder",
+    "build:all": "npm run build && npm run build-electron",
+    "build:prod": "cross-env NODE_ENV=production npm run build:all",
+    "dist": "npm run build:prod && electron-builder --publish=never",
+    "dist:mac": "npm run build:prod && electron-builder --mac --publish=never",
+    "dist:win": "npm run build:prod && electron-builder --win --publish=never",
+    "dist:linux": "npm run build:prod && electron-builder --linux --publish=never",
     "postinstall": "electron-builder install-app-deps",
     "migrate:add-version": "node scripts/add-version-to-users.js"
   },
@@ -38,6 +48,7 @@
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
+    "electron-updater": "^6.6.2",
     "express": "^5.1.0",
     "firebase": "^11.6.0",
     "firebase-admin": "^13.2.0",
@@ -85,37 +96,116 @@
     "appId": "com.fontinspector.app",
     "productName": "Font Inspector",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist-electron/**/*",
-      "src/**/*",
+      "out/**/*",
+      "src/server/**/*",
+      "scripts/**/*",
       "package.json",
       "next.config.ts",
-      "tsconfig.json"
+      "tsconfig.json",
+      "firebase.json",
+      "firestore.rules",
+      "firestore.indexes.json",
+      "!src/app/**/*",
+      "!src/components/**/*",
+      "!src/contexts/**/*",
+      "!**/*.ts",
+      "!**/*.tsx",
+      "!**/node_modules/**/*"
     ],
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "electron/assets/icon.icns",
       "category": "public.app-category.developer-tools",
-      "bundleVersion": "1.0.0"
+      "bundleVersion": "1.0.0",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/assets/icon.png",
+      "category": "Development"
     },
     "dmg": {
       "title": "Font Inspector",
-      "format": "ULFO"
+      "format": "ULFO",
+      "background": "build/background.png",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "publish": {
-      "provider": "generic",
-      "url": "https://your-update-server.com"
+      "provider": "github",
+      "owner": "kimmykimkw",
+      "repo": "font_inspector"
     }
   }
 }

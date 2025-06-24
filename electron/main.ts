@@ -4,12 +4,45 @@ import { spawn, ChildProcess } from 'child_process';
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
+import { autoUpdater } from 'electron-updater';
 
 // Set environment variable to indicate we're running in Electron
 process.env.ELECTRON_APP = 'true';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const port = process.env.PORT || 3000;
+
+// Auto-updater event handlers
+if (!isDev) {
+  autoUpdater.on('checking-for-update', () => {
+    console.log('Checking for update...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info.version);
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('Update not available:', info.version);
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('Error in auto-updater:', err);
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    let log_message = "Download speed: " + progressObj.bytesPerSecond;
+    log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
+    log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+    console.log(log_message);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded:', info.version);
+    // Auto-restart and install update
+    autoUpdater.quitAndInstall();
+  });
+}
 
 class ElectronApp {
   private mainWindow: BrowserWindow | null = null;
@@ -45,6 +78,11 @@ class ElectronApp {
 
     // Set up IPC handlers for permissions
     this.setupIpcHandlers();
+    
+    // Initialize auto-updater (only in production)
+    if (!isDev) {
+      this.initializeAutoUpdater();
+    }
   }
 
   private async createWindow(): Promise<void> {
@@ -149,30 +187,52 @@ class ElectronApp {
 
   private async startServers(): Promise<void> {
     try {
-      // Always use Next.js server (both dev and production)
-      this.nextApp = next({ dev: isDev, dir: process.cwd() });
-      const handle = this.nextApp.getRequestHandler();
-      
-      console.log(`Starting Next.js in ${isDev ? 'development' : 'production'} mode...`);
-      await this.nextApp.prepare();
-      
-      this.server = createServer((req, res) => {
-        const parsedUrl = parse(req.url!, true);
-        handle(req, res, parsedUrl);
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        this.server.listen(port, (error: any) => {
-          if (error) {
-            reject(error);
-          } else {
-            console.log(`Next.js ready on http://localhost:${port}`);
-            resolve();
-          }
+      if (isDev) {
+        // Development: Use Next.js dev server
+        this.nextApp = next({ dev: true, dir: process.cwd() });
+        const handle = this.nextApp.getRequestHandler();
+        
+        console.log('Starting Next.js in development mode...');
+        await this.nextApp.prepare();
+        
+        this.server = createServer((req, res) => {
+          const parsedUrl = parse(req.url!, true);
+          handle(req, res, parsedUrl);
         });
-      });
 
-      // Start Express server for API
+        await new Promise<void>((resolve, reject) => {
+          this.server.listen(port, (error: any) => {
+            if (error) {
+              reject(error);
+            } else {
+              console.log(`Next.js ready on http://localhost:${port}`);
+              resolve();
+            }
+          });
+        });
+      } else {
+        // Production: Serve static files from out directory
+        const express = require('express');
+        const path = require('path');
+        const staticApp = express();
+        
+        // Serve static files from the out directory (Next.js export output)
+        const staticPath = path.join(process.cwd(), 'out');
+        console.log(`Serving static files from: ${staticPath}`);
+        
+        staticApp.use(express.static(staticPath));
+        
+        // Handle client-side routing - serve index.html for all routes
+        staticApp.get('*', (req: any, res: any) => {
+          res.sendFile(path.join(staticPath, 'index.html'));
+        });
+        
+        this.server = staticApp.listen(port, () => {
+          console.log(`Static server ready on http://localhost:${port}`);
+        });
+      }
+
+      // Start Express server for API in both dev and production
       const serverScript = isDev ? 'server:dev' : 'server';
       console.log(`Starting Express server with: npm run ${serverScript}`);
       this.expressServer = spawn('npm', ['run', serverScript], {
@@ -284,6 +344,21 @@ class ElectronApp {
         throw error;
       }
     });
+  }
+
+  private initializeAutoUpdater(): void {
+    // Check for updates when app is ready
+    app.whenReady().then(() => {
+      // Wait a bit after startup to check for updates
+      setTimeout(() => {
+        autoUpdater.checkForUpdatesAndNotify();
+      }, 5000);
+    });
+    
+    // Check for updates every hour
+    setInterval(() => {
+      autoUpdater.checkForUpdatesAndNotify();
+    }, 60 * 60 * 1000);
   }
 
   private cleanup(): void {
