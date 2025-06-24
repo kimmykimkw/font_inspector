@@ -1,0 +1,2 @@
+# Add to your shell profile (.zshrc, .bashrc, etc.)
+export GH_TOKEN=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
