@@ -20,7 +20,7 @@ export function Header() {
         <div className="flex items-center gap-2">
           <Link href="/" className="font-bold text-xl flex items-center gap-2">
             <Type className="h-5 w-5" />
-            Font Inspector by Kimmy
+            Font Inspector
           </Link>
         </div>
         <div className="flex items-center gap-6">

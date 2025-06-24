@@ -18,7 +18,7 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 - **Login Page**: Google Sign-In authentication required to access the application.
 - **Access Request System**: New users must request access through a dedicated request form.
 - **Admin Approval**: Access requests require approval from system administrators.
-- **User Profile**: Dropdown menu in header showing user avatar, name, email, current usage statistics, and logout option.
+- **User Profile**: Dropdown menu in header showing user avatar, name, email, current usage statistics, app version, and logout option.
 - **Permission Checking**: Real-time permission validation before allowing inspections or project creation.
 - **Usage Limits**: Monthly limits for inspections and projects set by administrators with live usage tracking.
 - **Permission Feedback**: Clear visual feedback when users lack permissions or exceed limits.
@@ -67,6 +67,7 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 
 ### 5. About Page
 - **Project Description**: Detailed explanation of Font Inspector's purpose and technology.
+- **Browser Requirements**: Clear notification that Chrome browser is required for the application to function properly.
 - **How It Works**: Overview of the inspection process.
 - **Privacy & Security**: Information about user data protection and Google authentication.
 - **Team & Contact Information**: Background and contact details for further support.
@@ -85,7 +86,7 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 ## Admin System Architecture
 
 ### Admin Web Application
-The admin system is a separate Next.js web application that provides comprehensive administrative capabilities for Font Inspector. It runs independently from the main desktop application and offers a web-based interface for system administrators.
+The admin system is a separate Next.js web application that provides comprehensive administrative capabilities for Font Inspector. It runs independently from the main desktop application and offers a web-based interface for system administrators. The admin application is deployed to Firebase Hosting and accessible at the dedicated admin URL.
 
 ### Admin Site Map & Features
 
@@ -107,20 +108,19 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **User Suspension**: Temporarily suspend users with duration and reason tracking.
 - **Usage Analytics**: Monitor user activity, inspections, and project creation with real-time usage tracking.
 - **Profile Editing**: Edit user profiles, permissions, usage limits, and administrative notes.
-- **Bulk Operations**: Efficiently manage multiple users with batch permission updates.
+- **Bulk Operations**: Efficiently manage multiple users with batch permission updates and bulk inspection/project limit modifications.
+- **Version Analytics**: Track user adoption of different app versions and monitor upgrade patterns.
 
 #### 4. User Statistics & Analytics
 - **Usage Metrics**: Track total users, active users, and growth statistics.
 - **Inspection Analytics**: Monitor font inspections and project creation trends.
 - **User Engagement**: Track daily, weekly, and monthly active users.
-- **Export Capabilities**: Export user data and statistics for analysis.
+- **Version Distribution**: Monitor app version adoption across user base with detailed version analytics.
+- **Export Capabilities**: Export user data and statistics for analysis including version information.
 
-#### 5. Activity Monitoring
-- **Comprehensive Logging**: Track all admin actions and user activities.
-- **Real-time Activity Feed**: Live updates of system activities and admin actions.
-- **Advanced Filtering**: Filter activities by type, severity, date range, and users.
-- **Audit Trail**: Complete audit trail for compliance and security purposes.
-- **Export Functionality**: CSV export of activity logs for external analysis.
+#### 5. System Settings
+- **Configuration Management**: System-wide configuration settings and preferences.
+- **Export Functionality**: CSV export of user data and statistics for external analysis.
 
 #### 6. Admin Settings
 - **Profile Management**: Admin user profile and permission viewing.
@@ -291,7 +291,9 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Admin Authentication**: Implement Firebase auth with admin role verification and secure login
 - **User Management System**: Create comprehensive user management with access control and permissions
 - **Activity Logging**: Implement real-time activity monitoring and audit trail functionality
-- **Dashboard Analytics**: Build analytics dashboard for user statistics and system monitoring
+- **Dashboard Analytics**: Build analytics dashboard for user statistics and system monitoring with version tracking capabilities
+- **Bulk Operations Interface**: Implement bulk user management interface for efficient permission and limit updates
+- **Version Analytics Dashboard**: Create version adoption tracking and analytics visualization
 - **Admin UI Components**: Develop admin-specific UI components using Shadcn/UI and Tailwind CSS
 
 ### 6. Distribution & Deployment:
@@ -300,7 +302,7 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Notarization**: Configure macOS notarization for distribution outside Mac App Store
 - **Update Server**: Set up update distribution server for automatic app updates
 - **Version Management**: Implement proper version control and release management
-- **Admin App Deployment**: Deploy admin application separately with Firebase Hosting or similar platform
+- **Admin App Deployment**: Deploy admin application separately with Firebase Hosting (currently deployed and operational)
 - **Documentation**: Create user documentation for installation and usage, plus admin system documentation
 
 ## UI Style and Theme
@@ -316,6 +318,17 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Rationale**: Chosen for its adaptability to desktop environments, seamless integration with Electron/Next.js/Tailwind, customizable components, and professional desktop application aesthetic
 
 ## Recent Major Updates
+
+### UI/UX and Branding Updates (Current)
+- **Title Simplification**: Streamlined application branding by removing "by Kimmy" from main titles (Header, Welcome Banner, Login Page) while retaining attribution in footer
+- **Chrome Browser Requirement**: Added prominent browser requirement notification in About page informing users that Chrome browser is required for Font Inspector to function properly
+- **Admin System Deployment**: Successfully deployed admin web application to Firebase Hosting with dedicated admin URL for system administrators
+
+### Admin System Enhancements (Current)
+- **Bulk Permission Management**: Implemented bulk operations for efficiently updating inspection and project limits across multiple users simultaneously, reducing administrative overhead
+- **User Version Tracking**: Added comprehensive app version tracking system that records the current app version for each user login and profile update
+- **Version Migration System**: Created migration script (`add-version-to-users.js`) to retroactively add version information to existing users with dry-run capability for safe deployment
+- **Enhanced User Analytics**: Improved user statistics tracking with version-aware analytics for better understanding of user adoption patterns
 
 ### Electron Conversion (Desktop Application)
 - **Platform Migration**: Successfully converted from Progressive Web App (PWA) to native desktop application using Electron
@@ -344,7 +357,6 @@ The admin system is a separate Next.js web application that provides comprehensi
 ### Admin System Implementation
 - **Comprehensive User Management**: Built full-featured admin web application for user access control and management
 - **Access Request System**: Implemented user access request and approval workflow with admin review capabilities
-- **Activity Monitoring**: Added comprehensive activity logging and audit trail for all system operations
 - **Permission Management**: Created granular user permission system with usage limits and suspension capabilities
 - **Real-time Analytics**: Implemented user statistics, usage analytics, and system monitoring dashboards
 - **Admin Authentication**: Separate admin authentication system with role-based access control
@@ -382,12 +394,11 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Visual Feedback Improvements**: Better loading states, error messages, and status indicators for user actions
 - **Delete Confirmation Dialogs**: Added confirmation dialogs for destructive actions with clear explanations
 
-### Activity Logging & Monitoring System
-- **Comprehensive Activity Logging**: Implemented detailed activity logging system for user actions, admin operations, and system events
-- **Real-time Activity Tracking**: Live activity monitoring with structured logging including metadata, severity levels, and timestamps
-- **User Action Tracking**: Detailed tracking of user inspections, project creation, and system interactions
-- **Admin Audit Trail**: Complete audit trail for administrative actions with user impact tracking
-- **Security Monitoring**: Activity logging includes IP addresses, user agents, and authentication events for security analysis
+### Performance Optimization
+- **Activity Logging Removal**: Removed comprehensive activity logging system to improve application performance and reduce database overhead
+- **Faster API Responses**: Eliminated blocking database write operations during inspections and project creation for improved response times
+- **Reduced Network Latency**: Removed Firebase write operations to activity logs collection, reducing network overhead and improving user experience
+- **Streamlined Operations**: Simplified API endpoints by removing activity logging calls while maintaining essential user statistics tracking
 
 ### User Statistics & Analytics Enhancement  
 - **Real-time User Statistics**: Comprehensive user statistics tracking including total inspections, projects, and monthly activity counts

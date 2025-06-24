@@ -3,7 +3,6 @@
 import { WelcomeBanner } from "@/components/WelcomeBanner";
 import { UrlInputForm } from "@/components/UrlInputForm";
 import { InspectionQueue } from "@/components/InspectionQueue";
-import { RecentInspections } from "@/components/RecentInspections";
 import ProjectInputForm from "@/components/ProjectInputForm";
 import { ProjectList } from "@/components/ProjectList";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -37,7 +36,6 @@ export default function Home() {
           
           <InspectionQueue />
           <ProjectList />
-          <RecentInspections />
         </div>
       </div>
     </AuthWrapper>

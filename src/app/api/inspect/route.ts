@@ -3,29 +3,29 @@ import { inspectWebsite } from '@/server/services/inspectionService';
 import { saveInspectionResult, saveFailedInspectionResult } from '@/server/services/firebaseService';
 import { formatTimestamp } from '@/lib/server-utils';
 import { getAuthenticatedUser, getAuthorizedUser, createUnauthorizedResponse } from '@/lib/auth-utils';
-import { userActionLogger } from '@/lib/activity-logger';
 import { incrementUserInspectionCount } from '@/lib/user-stats';
 import { checkInspectionLimit } from '@/lib/limit-checker';
+import logger from '@/lib/logger';
 
 export async function POST(request: Request) {
   try {
-    console.log('API: Processing inspection request');
+    logger.debug('Processing inspection request');
     
     // Get authenticated and authorized user
     const userInfo = await getAuthorizedUser(request);
     
     if (!userInfo) {
-      console.log("API: Unauthenticated request to inspect endpoint");
+      logger.debug("Unauthenticated request to inspect endpoint");
       return createUnauthorizedResponse();
     }
     
     const { userId, email } = userInfo;
-    console.log(`API: Processing inspection request for user: ${userId} (${email})`);
+    logger.debug(`Processing inspection request for authenticated user`);
     
     // Check inspection limits before processing
     const limitCheck = await checkInspectionLimit(userId, email);
     if (!limitCheck.allowed) {
-      console.log(`API: Inspection limit exceeded for user ${userId}: ${limitCheck.reason}`);
+      logger.warn(`Inspection limit exceeded: ${limitCheck.reason}`);
       
       // Determine appropriate status code based on the reason
       let statusCode = 429; // Too Many Requests (default for limits)
@@ -51,15 +51,15 @@ export async function POST(request: Request) {
       );
     }
     
-    console.log(`API: Inspection limit check passed for user ${userId}: ${limitCheck.currentCount}/${limitCheck.limit}`);
+    logger.debug(`Inspection limit check passed: ${limitCheck.currentCount}/${limitCheck.limit}`);
     
     // Parse request body
     const body = await request.json();
-    console.log('Request body:', body);
+    logger.debug('Request body received');
     
     // Handle permission check requests - return limit info without creating inspection
     if (body.permissionCheck) {
-      console.log(`API: Permission check request for user: ${userId}`);
+      logger.debug(`Permission check request`);
       return NextResponse.json({
         message: 'Permission check passed',
         currentCount: limitCheck.currentCount,
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     const url = body.urls[0];
     const projectId = body.projectId || null; // Extract project ID if provided
     
-    console.log(`API: Inspecting URL: ${url}${projectId ? `, Project ID: ${projectId}` : ''} for user: ${userId}`);
+    logger.debug(`Inspecting URL: ${url}${projectId ? ` for project` : ''}`);
 
     // Validate URL
     if (typeof url !== 'string' || !url.trim()) {
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
 
     // Validate projectId if provided
     if (projectId && (typeof projectId !== 'string' || !projectId.trim())) {
-      console.warn('API: Invalid projectId provided, will not associate inspection with project');
+      logger.warn('Invalid projectId provided, will not associate inspection with project');
       return NextResponse.json(
         { error: 'Invalid projectId provided' },
         { status: 400 }
@@ -107,29 +107,28 @@ export async function POST(request: Request) {
     try {
       // Use puppeteer service to inspect the website
       const result = await inspectWebsite(normalizedUrl);
-      console.log(`API: Website inspection completed for ${normalizedUrl}`);
+      logger.debug(`Website inspection completed`);
       
       // Save results to Firebase with user association
-      console.log(`API: Saving inspection result to database for user ${userId}${projectId ? ` with projectId: ${projectId}` : ''}`);
+      logger.debug(`Saving inspection result to database`);
       const savedInspection = await saveInspectionResult(normalizedUrl, result, projectId, userId);
       
       if (!savedInspection || !savedInspection.id) {
-        console.error('API: Failed to save inspection to database');
+        logger.error('Failed to save inspection to database');
         return NextResponse.json(
           { error: 'Failed to save inspection to database' },
           { status: 500 }
         );
       }
       
-      console.log(`API: Inspection saved with ID: ${savedInspection.id} for user: ${userId}${projectId ? `, associated with project: ${projectId}` : ''}`);
+      logger.info(`Inspection saved successfully`);
       
-      // Log activity and update user stats
+      // Update user stats
       try {
-        await userActionLogger.inspectionCreated(email, userId, savedInspection.id!, normalizedUrl);
         await incrementUserInspectionCount(userId);
-        console.log(`API: Activity logged and stats updated for user: ${userId}`);
+        logger.debug(`User stats updated`);
       } catch (logError) {
-        console.error('API: Error logging activity or updating stats:', logError);
+        logger.error('Error updating stats:', logError);
         // Don't fail the request if logging fails
       }
       
@@ -150,22 +149,16 @@ export async function POST(request: Request) {
         }
       });
     } catch (inspectionError) {
-      console.error('API: Website inspection failed:', inspectionError);
+      logger.error('Website inspection failed:', inspectionError);
       const errorMessage = inspectionError instanceof Error ? inspectionError.message : String(inspectionError);
       
       // Save failed inspection to database
-      console.log(`API: Saving failed inspection to database for user ${userId}${projectId ? ` with projectId: ${projectId}` : ''}`);
+      logger.debug(`Saving failed inspection to database`);
       try {
         const savedFailedInspection = await saveFailedInspectionResult(normalizedUrl, errorMessage, projectId, userId);
-        console.log(`API: Failed inspection saved with ID: ${savedFailedInspection.id} for user: ${userId}`);
+        logger.info(`Failed inspection saved`);
         
-        // Log activity for failed inspection
-        try {
-          await userActionLogger.inspectionCreated(email, userId, savedFailedInspection.id!, normalizedUrl);
-          console.log(`API: Activity logged for failed inspection for user: ${userId}`);
-        } catch (logError) {
-          console.error('API: Error logging failed inspection activity:', logError);
-        }
+        // Note: No stats update for failed inspections as they don't count towards user limits
         
         // Return the failed inspection data instead of an error
         return NextResponse.json({
@@ -187,7 +180,7 @@ export async function POST(request: Request) {
         });
         
       } catch (saveError) {
-        console.error('API: Error saving failed inspection to database:', saveError);
+        logger.error('Error saving failed inspection to database:', saveError);
         // If we can't save failed inspection, return the original error
         return NextResponse.json(
           { 
@@ -200,7 +193,7 @@ export async function POST(request: Request) {
       }
     }
   } catch (error) {
-    console.error('API: Request processing error:', error);
+    logger.error('Request processing error:', error);
     
     // Get detailed error info
     const errorMessage = error instanceof Error ? error.message : String(error);

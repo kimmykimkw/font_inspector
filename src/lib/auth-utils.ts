@@ -1,5 +1,6 @@
 import { auth } from '@/lib/firebase';
 import { isUserAuthorized } from '@/lib/models/admin-service';
+import logger from './logger';
 
 /**
  * Get the authenticated user from the request
@@ -7,55 +8,51 @@ import { isUserAuthorized } from '@/lib/models/admin-service';
  */
 export async function getAuthenticatedUser(request: Request): Promise<string | null> {
   try {
-    console.log('Auth Utils: Starting authentication verification...');
+    logger.debug('Starting authentication verification...');
     
     // Get the authorization header
     const authHeader = request.headers.get('authorization');
     
     if (!authHeader) {
-      console.log('Auth Utils: No authorization header found');
+      logger.debug('No authorization header found');
       return null;
     }
     
     if (!authHeader.startsWith('Bearer ')) {
-      console.log('Auth Utils: Authorization header does not start with Bearer:', authHeader.substring(0, 20));
+      logger.debug('Authorization header does not start with Bearer');
       return null;
     }
 
     const idToken = authHeader.split('Bearer ')[1];
     
     if (!idToken) {
-      console.log('Auth Utils: No ID token found after Bearer');
+      logger.debug('No ID token found after Bearer');
       return null;
     }
 
-    console.log('Auth Utils: Attempting to verify ID token (length:', idToken.length, ')');
+    logger.debug('Attempting to verify ID token');
 
     // Verify the ID token using Firebase Admin SDK
     const decodedToken = await auth.verifyIdToken(idToken);
     
-    console.log('Auth Utils: Token decoded successfully');
-    
     if (!decodedToken.uid) {
-      console.log('Auth Utils: No UID found in decoded token');
+      logger.debug('No UID found in decoded token');
       return null;
     }
 
-    console.log('Auth Utils: Authentication successful for user:', decodedToken.uid);
+    logger.debug('Authentication successful');
     return decodedToken.uid;
   } catch (error) {
-    console.error('Auth Utils: Error verifying authentication:', error);
+    logger.error('Error verifying authentication:', error);
     
     // Log specific error details
     if (error instanceof Error) {
-      console.error('Auth Utils: Error name:', error.name);
-      console.error('Auth Utils: Error message:', error.message);
       if (error.message.includes('Firebase ID token has expired')) {
-        console.error('Auth Utils: Token has expired - client should refresh');
+        logger.warn('Token has expired - client should refresh');
       } else if (error.message.includes('Firebase ID token has invalid signature')) {
-        console.error('Auth Utils: Token has invalid signature');
+        logger.warn('Token has invalid signature');
       } else if (error.message.includes('Firebase ID token has incorrect "aud"')) {
-        console.error('Auth Utils: Token has incorrect audience');
+        logger.warn('Token has incorrect audience');
       }
     }
     
@@ -87,7 +84,7 @@ export async function getAuthorizedUser(request: Request): Promise<{ userId: str
     const email = decodedToken.email;
 
     if (!email) {
-      console.log('Auth Utils: No email found in token');
+      logger.debug('No email found in token');
       return null;
     }
 
@@ -95,14 +92,14 @@ export async function getAuthorizedUser(request: Request): Promise<{ userId: str
     const authorized = await isUserAuthorized(email);
     
     if (!authorized) {
-      console.log('Auth Utils: User not authorized:', email);
+      logger.debug('User not authorized');
       return null;
     }
 
-    console.log('Auth Utils: User authorized successfully:', email);
+    logger.debug('User authorized successfully');
     return { userId, email };
   } catch (error) {
-    console.error('Auth Utils: Error verifying authorization:', error);
+    logger.error('Error verifying authorization:', error);
     return null;
   }
 }

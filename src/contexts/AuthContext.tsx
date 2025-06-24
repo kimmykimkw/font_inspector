@@ -13,8 +13,8 @@ import {
 import { firestoreDb, auth } from '@/lib/firebase-client';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import { userActionLogger } from '@/lib/activity-logger';
 import { updateUserStats } from '@/lib/user-stats';
+import { getCurrentAppVersion } from '@/lib/version';
 
 // Initialize Google Auth Provider
 const googleProvider = new GoogleAuthProvider();
@@ -34,6 +34,7 @@ export interface UserProfile {
   photoURL: string | null;
   createdAt?: any;
   lastLoginAt?: any;
+  appVersion?: string;
 }
 
 interface AuthContextType {
@@ -87,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         displayName: user.displayName,
         photoURL: user.photoURL,
         lastLoginAt: serverTimestamp(),
+        appVersion: getCurrentAppVersion(),
       };
 
       if (!userSnap.exists()) {
@@ -96,9 +98,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           createdAt: serverTimestamp(),
         });
       } else {
-        // Update last login time
+        // Update last login time and app version
         await setDoc(userRef, {
           lastLoginAt: serverTimestamp(),
+          appVersion: getCurrentAppVersion(),
         }, { merge: true });
       }
 

@@ -24,8 +24,8 @@ interface LimitCheckResult {
 // Default permissions for users who don't have explicit permissions set
 const DEFAULT_PERMISSIONS: UserPermissions = {
   canUseApp: true,
-  maxInspectionsPerMonth: 50,
-  maxProjectsPerMonth: 10
+  maxInspectionsPerMonth: 1000,
+  maxProjectsPerMonth: 300
 };
 
 // Get user permissions by querying the userId field

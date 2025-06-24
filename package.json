@@ -20,7 +20,8 @@
     "electron:dist": "npm run build && npm run build-electron && electron-builder --publish=never",
     "build-electron": "tsc -p electron/tsconfig.json",
     "build:electron": "npm run build && npm run build-electron && electron-builder",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "migrate:add-version": "node scripts/add-version-to-users.js"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.7",

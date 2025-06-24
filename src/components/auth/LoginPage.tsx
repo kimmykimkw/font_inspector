@@ -96,7 +96,7 @@ export function LoginPage() {
         {/* Login card */}
         <Card className="shadow-lg border-0 bg-white/80 backdrop-blur">
           <CardHeader className="text-center pb-6">
-            <CardTitle className="text-2xl">Font Inspector by Kimmy</CardTitle>
+            <CardTitle className="text-2xl">Font Inspector</CardTitle>
           </CardHeader>
           <CardContent className="space-y-8">
             {/* Error message */}

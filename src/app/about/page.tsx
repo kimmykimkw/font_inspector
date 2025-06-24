@@ -20,6 +20,18 @@ export default function AboutPage() {
           </section>
 
           <section>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h3 className="text-lg font-medium flex items-center gap-2 mb-2 text-blue-800">
+                <Monitor className="h-5 w-5" />
+                Browser Requirement
+              </h3>
+              <p className="text-blue-700">
+                <strong>Chrome browser is required</strong> to use Font Inspector. Please ensure you have Google Chrome installed on your system before running inspections.
+              </p>
+            </div>
+          </section>
+
+          <section>
             <h2 className="text-2xl font-semibold mb-3 flex items-center gap-2">
               How It Works
             </h2>

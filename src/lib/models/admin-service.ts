@@ -120,8 +120,8 @@ export const approveUserInvitation = async (
       transaction.set(userPermissionsRef, {
         userId: invitation.email, // We'll update this when user actually signs up
         canUseApp: true,
-        maxInspectionsPerMonth: 100, // Default limit
-        maxProjectsPerMonth: 10, // Default limit
+        maxInspectionsPerMonth: 1000, // Default limit
+        maxProjectsPerMonth: 300, // Default limit
         updatedAt: Timestamp.now(),
         updatedBy: adminUserId
       });

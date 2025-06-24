@@ -4,24 +4,24 @@ import { getInspectionsByProjectId } from "@/lib/models/inspection";
 import { createProject } from "@/lib/models/project"; 
 import { formatTimestamp } from "@/lib/server-utils";
 import { getAuthenticatedUser, getAuthorizedUser, createUnauthorizedResponse } from "@/lib/auth-utils";
-import { userActionLogger } from "@/lib/activity-logger";
 import { incrementUserProjectCount } from "@/lib/user-stats";
 import { checkProjectLimit } from "@/lib/limit-checker";
+import logger from "@/lib/logger";
 
 // GET /api/projects - Fetch all projects for authenticated user
 export async function GET(request: Request) {
   try {
-    console.log("API: Fetching projects");
+    logger.debug("Fetching projects");
     
     // Get authenticated user
     const userId = await getAuthenticatedUser(request);
     
     if (!userId) {
-      console.log("API: Unauthenticated request to projects endpoint");
+      logger.debug("Unauthenticated request to projects endpoint");
       return createUnauthorizedResponse();
     }
     
-    console.log(`API: Fetching projects for user: ${userId}`);
+    logger.debug("Fetching projects for authenticated user");
     
     // Get all projects from Firebase for this user
     const projects = await getAllProjects(userId);
@@ -53,12 +53,12 @@ export async function GET(request: Request) {
       })
     );
     
-    console.log(`API: Found ${projects.length} project records for user ${userId}`);
+    logger.info(`Found ${projects.length} projects for user`);
     
     // Return formatted projects
     return NextResponse.json(formattedProjects);
   } catch (error) {
-    console.error("API Error fetching projects:", error);
+    logger.error("Error fetching projects:", error);
     
     // Get detailed error info
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -81,23 +81,23 @@ export async function POST(request: Request) {
   const requestId = Math.random().toString(36).substring(2, 9);
   
   try {
-    console.log(`[${requestId}] API: Creating a new project`);
+    logger.debug(`Creating a new project`);
     
     // Get authenticated and authorized user
     const userInfo = await getAuthorizedUser(request);
     
     if (!userInfo) {
-      console.log(`[${requestId}] API: Unauthenticated request to create project`);
+      logger.debug(`Unauthenticated request to create project`);
       return createUnauthorizedResponse();
     }
     
     const { userId, email } = userInfo;
-    console.log(`[${requestId}] API: Creating project for user: ${userId} (${email})`);
+    logger.debug(`Creating project for authenticated user`);
     
     // Check project limits before processing
     const limitCheck = await checkProjectLimit(userId, email);
     if (!limitCheck.allowed) {
-      console.log(`[${requestId}] API: Project limit exceeded for user ${userId}: ${limitCheck.reason}`);
+      logger.warn(`Project limit exceeded: ${limitCheck.reason}`);
       
       // Determine appropriate status code based on the reason
       let statusCode = 429; // Too Many Requests (default for limits)
@@ -123,15 +123,15 @@ export async function POST(request: Request) {
       );
     }
     
-    console.log(`[${requestId}] API: Project limit check passed for user ${userId}: ${limitCheck.currentCount}/${limitCheck.limit}`);
+    logger.debug(`Project limit check passed: ${limitCheck.currentCount}/${limitCheck.limit}`);
     
     // Parse request body
     const body = await request.json();
-    console.log(`[${requestId}] Request body:`, body);
+    logger.debug(`Request body received`);
     
     // Handle permission check requests - return limit info without creating project
     if (body.permissionCheck) {
-      console.log(`[${requestId}] API: Permission check request for user: ${userId}`);
+      logger.debug(`Permission check request`);
       return NextResponse.json({
         message: 'Permission check passed',
         currentCount: limitCheck.currentCount,
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
     }
     
     if (!body.name) {
-      console.error(`[${requestId}] API Error: Missing required field 'name'`);
+      logger.warn(`Missing required field 'name'`);
       return NextResponse.json(
         { error: "Missing required field", details: "Project name is required" },
         { status: 400 }
@@ -149,7 +149,7 @@ export async function POST(request: Request) {
     }
     
     // Create project in Firebase with inspectionIds if provided and associate with user
-    console.log(`[${requestId}] Attempting to create project with name: "${body.name}"`);
+    logger.debug(`Creating project: "${body.name}"`);
     const project = await createProject({
       name: body.name,
       description: body.description || "",
@@ -157,21 +157,14 @@ export async function POST(request: Request) {
       inspectionIds: body.inspectionIds || [], // Handle inspectionIds from request body
     });
     
-    console.log(`[${requestId}] API: Project created successfully:`, { 
-      id: project.id, 
-      name: project.name, 
-      userId: project.userId,
-      createdAt: project.createdAt
-    });
+    logger.info(`Project created successfully: ${project.name}`);
     
-    // Log activity and update user stats
+    // Update user stats
     try {
-      const urlCount = body.inspectionIds ? body.inspectionIds.length : 0;
-      await userActionLogger.projectCreated(email, userId, project.id!, urlCount);
       await incrementUserProjectCount(userId);
-      console.log(`[${requestId}] API: Activity logged and stats updated for user: ${userId}`);
+      logger.debug(`User stats updated`);
     } catch (logError) {
-      console.error(`[${requestId}] API: Error logging activity or updating stats:`, logError);
+      logger.error(`Error updating stats:`, logError);
       // Don't fail the request if logging fails
     }
     
@@ -191,7 +184,7 @@ export async function POST(request: Request) {
       }
     });
   } catch (error) {
-    console.error(`[${requestId}] API Error creating project:`, error);
+    logger.error(`Error creating project:`, error);
     
     // Get detailed error info
     const errorMessage = error instanceof Error ? error.message : String(error);
