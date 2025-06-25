@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResizableTable, ResizableHeader, ResizableCell } from "@/components/ui/resizable";
 import { toast } from "sonner";
 import { useInspection } from "@/contexts/InspectionContext";
+import { generateFontInspectionCSV, downloadCSV } from '@/lib/csv-utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { 
   BarChart3, 
@@ -429,92 +430,52 @@ export default function ResultsPage() {
 
   // Handle export results to CSV
   const handleExportResults = () => {
-    if (!inspection) return;
-    
-    // Helper function to find font family from CSS @font-face declarations (same as in render)
-    const findFontFamilyFromCSS = (fontUrl: string) => {
-      if (!inspection.fontFaceDeclarations?.length) {
-        return 'Unknown';
-      }
-      
-      // Try to match the font URL with @font-face declarations
-      for (const declaration of inspection.fontFaceDeclarations) {
-        if (declaration.source && declaration.family) {
-          // Check if the font URL is referenced in the @font-face source
-          const sourceUrls = declaration.source.match(/url\(['"]?([^'")\s]+)['"]?\)/gi);
-          
-          if (sourceUrls) {
-            for (const sourceUrl of sourceUrls) {
-              // Extract the actual URL from url() declaration
-              const urlMatch = sourceUrl.match(/url\(['"]?([^'")\s]+)['"]?\)/i);
-              if (urlMatch && urlMatch[1]) {
-                const cssUrl = urlMatch[1];
-                
-                // Check if the font URL matches or ends with the CSS URL
-                if (fontUrl === cssUrl || 
-                    fontUrl.endsWith(cssUrl) || 
-                    cssUrl.endsWith(fontUrl.split('/').pop() || '') ||
-                    fontUrl.includes(cssUrl.split('/').pop() || '')) {
-                  return declaration.family.replace(/["']/g, '').trim();
-                }
-              }
-            }
-          }
+    if (!inspection) {
+      console.error('🔍 CSV Export Error: No inspection data available');
+      return;
+    }
+
+    console.log('🔍 Starting CSV export for inspection results page:', inspection._id);
+    console.log('🔍 Inspection data structure:', {
+      id: inspection._id,
+      url: inspection.url,
+      hasDownloadedFonts: !!inspection.downloadedFonts,
+      downloadedFontsCount: inspection.downloadedFonts?.length || 0,
+      hasFontFaceDeclarations: !!inspection.fontFaceDeclarations,
+      fontFaceDeclarationsCount: inspection.fontFaceDeclarations?.length || 0,
+      hasActiveFonts: !!inspection.activeFonts,
+      activeFontsCount: inspection.activeFonts?.length || 0
+    });
+
+    // Transform the inspection data to match the expected format for our CSV utility
+    const transformedInspection = {
+      id: inspection._id,
+      url: inspection.url,
+      result: {
+        result: {
+          downloadedFonts: inspection.downloadedFonts || [],
+          fontFaceDeclarations: inspection.fontFaceDeclarations || [],
+          activeFonts: inspection.activeFonts || []
         }
       }
-      
-      return 'Unknown';
     };
+
+    // Use the enhanced CSV generation utility
+    const csvContent = generateFontInspectionCSV(transformedInspection, `Results Page ${inspection._id} CSV Export`);
     
-    // Prepare CSV data
-    let csvContent = "data:text/csv;charset=utf-8,";
-    
-    // Headers for downloadedFonts
-    csvContent += "Font Family,Font Name,Format,Size (KB),URL,Source\n";
-    
-    // Add downloaded fonts data
-    if (inspection.downloadedFonts?.length) {
-      inspection.downloadedFonts.forEach((font: FontFile) => {
-        const fontFamily = findFontFamilyFromCSS(font.url);
-        const row = [
-          fontFamily,
-          font.name || 'Unknown',
-          font.format || 'Unknown',
-          (font.size / 1024).toFixed(2) || '0',
-          font.url || '',
-          font.source || 'Unknown'
-        ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
-        
-        csvContent += row + "\n";
-      });
+    if (!csvContent) {
+      console.error('❌ Failed to generate CSV content');
+      toast.error("Failed to export results");
+      return;
     }
+
+    // Generate filename
+    const filename = `font-inspection-${inspection.url.replace(/[^a-z0-9]/gi, '-')}.csv`;
     
-    // Add a separator if we have active fonts data too
-    if (inspection.activeFonts?.length && inspection.downloadedFonts?.length) {
-      csvContent += "\n";
-      csvContent += "Active Fonts\n";
-      csvContent += "Font Family,Element Count\n";
-      
-      inspection.activeFonts.forEach((font: ActiveFont) => {
-        const elementCount = font.elementCount || font.count || 0;
-        const row = [
-          font.family || 'Unknown',
-          elementCount.toString()
-        ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
-        
-        csvContent += row + "\n";
-      });
-    }
+    // Download the CSV
+    downloadCSV(csvContent, filename);
     
-    // Create and trigger download
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `font-inspection-${inspection.url.replace(/[^a-z0-9]/gi, '-')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
+    console.log('✅ CSV export completed for results page:', inspection._id);
     toast.success("Results exported successfully!");
   };
 
