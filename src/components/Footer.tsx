@@ -12,10 +12,7 @@ export function Footer() {
           </p>
           <span className="text-sm text-neutral-400">v{getCurrentAppVersion()}</span>
         </div>
-        <div className="flex gap-4">
-          <a href="#" className="text-sm text-neutral-500 hover:text-neutral-900">Privacy</a>
-          <a href="#" className="text-sm text-neutral-500 hover:text-neutral-900">Terms</a>
-        </div>
+
       </div>
     </footer>
   );

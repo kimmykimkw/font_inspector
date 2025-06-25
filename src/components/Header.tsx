@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthButton } from "@/components/auth/AuthButton";
 import { useAuth } from "@/contexts/AuthContext";
-import { Home, History, Info, HelpCircle, Type } from "lucide-react";
+import { Home, History, Info, HelpCircle } from "lucide-react";
+import Image from "next/image";
 
 export function Header() {
   const pathname = usePathname();
@@ -18,8 +19,8 @@ export function Header() {
     <header className="w-full border-b">
       <div className="container mx-auto flex h-16 items-center justify-between">
         <div className="flex items-center gap-2">
-          <Link href="/" className="font-bold text-xl flex items-center gap-2">
-            <Type className="h-5 w-5" />
+          <Link href="/" className="font-bold text-xl flex items-center gap-1">
+            <Image src="/logo.svg" alt="Font Inspector Logo" width={40} height={40} />
             Font Inspector
           </Link>
         </div>
