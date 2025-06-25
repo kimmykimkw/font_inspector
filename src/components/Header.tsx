@@ -17,13 +17,15 @@ export function Header() {
 
   return (
     <header className="w-full border-b">
-      <div className="container mx-auto flex h-16 items-center justify-between">
+      <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <Link href="/" className="font-bold text-xl flex items-center gap-1">
-            <Image src="/logo.svg" alt="Font Inspector Logo" width={40} height={40} />
+            <Image src="/fontinspector_logo.png" alt="Font Inspector Logo" width={40} height={40} />
             Font Inspector
           </Link>
         </div>
+        {/* Draggable spacer area */}
+        <div className="flex-1 min-h-[16px]" />
         <div className="flex items-center gap-6">
           <nav className="flex items-center gap-6">
             <Link 

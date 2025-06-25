@@ -107,6 +107,7 @@
     "files": [
       "dist-electron/**/*",
       ".next/**/*",
+      "public/**/*",
       "src/server/**/*",
       "scripts/**/*",
       "package.json",
@@ -193,7 +194,6 @@
     "dmg": {
       "title": "Font Inspector",
       "format": "ULFO",
-      "background": "build/background.png",
       "contents": [
         {
           "x": 130,
