@@ -1,10 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Temporarily disable static export to get Electron build working
-  // output: 'export',
-  
-  // Configure image optimization for static export
+  // Configure image optimization
   images: {
     unoptimized: true,
   },
@@ -14,6 +11,12 @@ const nextConfig: NextConfig = {
   
   // Set custom dist directory
   distDir: '.next',
+  
+  // Disable x-powered-by header
+  poweredByHeader: false,
+  
+  // Configure for Electron environment
+  assetPrefix: process.env.NODE_ENV === 'production' && process.env.ELECTRON_APP ? '' : undefined,
   
   eslint: {
     // Temporarily ignore ESLint during builds for Electron setup

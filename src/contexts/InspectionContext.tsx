@@ -2,6 +2,7 @@
 
 import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
+import { generateFontInspectionCSV, downloadCSV } from '@/lib/csv-utils';
 
 // Types
 export interface InspectionItem {
@@ -416,93 +417,34 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
   // Export inspection data to CSV
   const exportInspectionToCsv = (id: string) => {
     const inspection = getInspectionById(id);
-    if (!inspection || inspection.status !== 'completed') return;
+    if (!inspection || inspection.status !== 'completed') {
+      console.error('CSV Export Error: Inspection not found or not completed', { id, inspection });
+      return;
+    }
 
-    const { result } = inspection;
+    console.log('🔍 Starting CSV export for inspection:', id);
+    console.log('🔍 Inspection data:', {
+      id: inspection.id,
+      url: inspection.url,
+      hasResult: !!inspection.result,
+      projectId: inspection.projectId
+    });
+
+    // Use the enhanced CSV generation utility
+    const csvContent = generateFontInspectionCSV(inspection, `Inspection ${id} CSV Export`);
     
-    // Helper function to find font family from CSS @font-face declarations
-    const findFontFamilyFromCSS = (fontUrl: string, fontFaceDeclarations: any[]) => {
-      if (!fontFaceDeclarations?.length) {
-        return 'Unknown';
-      }
-      
-      // Try to match the font URL with @font-face declarations
-      for (const declaration of fontFaceDeclarations) {
-        if (declaration.source && declaration.family) {
-          // Check if the font URL is referenced in the @font-face source
-          const sourceUrls = declaration.source.match(/url\(['"]?([^'")\s]+)['"]?\)/gi);
-          
-          if (sourceUrls) {
-            for (const sourceUrl of sourceUrls) {
-              // Extract the actual URL from url() declaration
-              const urlMatch = sourceUrl.match(/url\(['"]?([^'")\s]+)['"]?\)/i);
-              if (urlMatch && urlMatch[1]) {
-                const cssUrl = urlMatch[1];
-                
-                // Check if the font URL matches or ends with the CSS URL
-                if (fontUrl === cssUrl || 
-                    fontUrl.endsWith(cssUrl) || 
-                    cssUrl.endsWith(fontUrl.split('/').pop() || '') ||
-                    fontUrl.includes(cssUrl.split('/').pop() || '')) {
-                  return declaration.family.replace(/["']/g, '').trim();
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      return 'Unknown';
-    };
-    
-    // Prepare data for downloadedFonts
-    let csvContent = "data:text/csv;charset=utf-8,";
-    
-    // Headers for downloadedFonts - now includes Font Family
-    csvContent += "Font Family,Font Name,Format,Size (KB),URL,Source\n";
-    
-    // Add downloaded fonts data
-    if (result?.result?.downloadedFonts?.length) {
-      result.result.downloadedFonts.forEach((font: any) => {
-        const fontFamily = findFontFamilyFromCSS(font.url, result?.result?.fontFaceDeclarations || []);
-        const row = [
-          fontFamily,
-          font.name || 'Unknown',
-          font.format || 'Unknown',
-          (font.size / 1024).toFixed(2) || '0',
-          font.url || '',
-          font.source || 'Unknown'
-        ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
-        
-        csvContent += row + "\n";
-      });
+    if (!csvContent) {
+      console.error('❌ Failed to generate CSV content');
+      return;
     }
+
+    // Generate filename
+    const filename = `font-inspection-${inspection.url.replace(/[^a-z0-9]/gi, '-')}.csv`;
     
-    // Add a separator if we have active fonts data too
-    if (result?.result?.activeFonts?.length && result?.result?.downloadedFonts?.length) {
-      csvContent += "\n";
-      csvContent += "Active Fonts\n";
-      csvContent += "Font Family,Element Count\n";
-      
-      result.result.activeFonts.forEach((font: any) => {
-        const elementCount = font.elementCount || font.count || 0;
-        const row = [
-          font.family || 'Unknown',
-          elementCount.toString()
-        ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
-        
-        csvContent += row + "\n";
-      });
-    }
+    // Download the CSV
+    downloadCSV(csvContent, filename);
     
-    // Create and trigger download
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `font-inspection-${inspection.url.replace(/[^a-z0-9]/gi, '-')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    console.log('✅ CSV export completed for inspection:', id);
   };
 
   // Export project data to CSV

@@ -35,7 +35,8 @@
     "publish:linux": "npm run build:prod && electron-builder --linux --publish=always",
     "publish:all": "npm run build:prod && electron-builder --publish=always",
     "postinstall": "electron-builder install-app-deps",
-    "migrate:add-version": "node scripts/add-version-to-users.js"
+    "migrate:add-version": "node scripts/add-version-to-users.js",
+    "test:firebase": "node scripts/test-firebase-config.js"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.7",
@@ -105,21 +106,27 @@
     },
     "files": [
       "dist-electron/**/*",
-      "out/**/*",
+      ".next/**/*",
       "src/server/**/*",
       "scripts/**/*",
       "package.json",
       "next.config.ts",
       "tsconfig.json",
       "firebase.json",
+      "firebase-service-account.json",
       "firestore.rules",
       "firestore.indexes.json",
+      "node_modules/next/**/*",
+      "node_modules/react/**/*",
+      "node_modules/react-dom/**/*",
       "!src/app/**/*",
       "!src/components/**/*",
       "!src/contexts/**/*",
       "!**/*.ts",
       "!**/*.tsx",
-      "!**/node_modules/**/*"
+      "!**/node_modules/**/test/**/*",
+      "!**/node_modules/**/tests/**/*",
+      "!**/node_modules/**/*.md"
     ],
     "mac": {
       "target": [
