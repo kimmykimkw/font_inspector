@@ -566,7 +566,7 @@ class ElectronApp {
   private async checkForUpdatesManually(): Promise<void> {
     if (isDev) {
       // Show dialog in development mode
-      dialog.showMessageBox(this.mainWindow!, {
+      await dialog.showMessageBox(this.mainWindow!, {
         type: 'info',
         title: 'Development Mode',
         message: 'Update checking is disabled in development mode.',
@@ -577,7 +577,7 @@ class ElectronApp {
 
     if (this.isCheckingForUpdates) {
       // Show dialog if already checking
-      dialog.showMessageBox(this.mainWindow!, {
+      await dialog.showMessageBox(this.mainWindow!, {
         type: 'info',
         title: 'Already Checking',
         message: 'Already checking for updates. Please wait...',
@@ -586,111 +586,83 @@ class ElectronApp {
       return;
     }
 
-    let checkingDialogShown = false;
+    this.isCheckingForUpdates = true;
     
     try {
-      this.isCheckingForUpdates = true;
-      
-      // Show checking dialog (non-blocking)
-      const checkingDialogPromise = dialog.showMessageBox(this.mainWindow!, {
+      // Set up one-time event listeners for this manual check
+      const updateCheckPromise = new Promise<void>((resolve, reject) => {
+        const onUpdateAvailable = async (info: any) => {
+          this.cleanupManualUpdateListeners();
+          await dialog.showMessageBox(this.mainWindow!, {
+            type: 'info',
+            title: 'Update Available',
+            message: `A new version (${info.version}) is available and will be downloaded in the background.`,
+            detail: 'You will be notified when the update is ready to install.',
+            buttons: ['OK']
+          });
+          resolve();
+        };
+
+        const onUpdateNotAvailable = async () => {
+          this.cleanupManualUpdateListeners();
+          await dialog.showMessageBox(this.mainWindow!, {
+            type: 'info',
+            title: 'No Updates Available',
+            message: 'Font Inspector is up to date!',
+            detail: `You are running the latest version (${app.getVersion()}).`,
+            buttons: ['OK']
+          });
+          resolve();
+        };
+
+        const onUpdateError = async (error: Error) => {
+          this.cleanupManualUpdateListeners();
+          await dialog.showMessageBox(this.mainWindow!, {
+            type: 'error',
+            title: 'Update Check Failed',
+            message: 'Failed to check for updates.',
+            detail: error.message,
+            buttons: ['OK']
+          });
+          reject(new Error(`Update check failed: ${error.message}`));
+        };
+
+        // Add temporary event listeners
+        autoUpdater.once('update-available', onUpdateAvailable);
+        autoUpdater.once('update-not-available', onUpdateNotAvailable);
+        autoUpdater.once('error', onUpdateError);
+
+        // Set a timeout to avoid hanging indefinitely
+        setTimeout(() => {
+          this.cleanupManualUpdateListeners();
+          reject(new Error('Update check timed out after 30 seconds'));
+        }, 30000);
+      });
+
+      // Show checking dialog while update check is in progress
+      const checkingDialog = dialog.showMessageBox(this.mainWindow!, {
         type: 'info',
         title: 'Checking for Updates',
         message: 'Checking for updates...',
-        buttons: ['Cancel'],
-        cancelId: 0
+        buttons: [],
+        detail: 'Please wait while we check for available updates.'
       });
-      checkingDialogShown = true;
-
-      // Set up one-time event listeners for this manual check
-      const onUpdateAvailable = async (info: any) => {
-        // Close the checking dialog first
-        if (checkingDialogShown) {
-          try {
-            // Force close any open dialogs
-            this.mainWindow?.focus();
-          } catch (e) {
-            console.log('Could not close checking dialog:', e);
-          }
-        }
-        
-        await dialog.showMessageBox(this.mainWindow!, {
-          type: 'info',
-          title: 'Update Available',
-          message: `A new version (${info.version}) is available and will be downloaded in the background.`,
-          detail: 'You will be notified when the update is ready to install.',
-          buttons: ['OK']
-        });
-        this.cleanupManualUpdateListeners();
-      };
-
-      const onUpdateNotAvailable = async () => {
-        // Close the checking dialog first
-        if (checkingDialogShown) {
-          try {
-            // Force close any open dialogs
-            this.mainWindow?.focus();
-          } catch (e) {
-            console.log('Could not close checking dialog:', e);
-          }
-        }
-        
-        await dialog.showMessageBox(this.mainWindow!, {
-          type: 'info',
-          title: 'No Updates Available',
-          message: 'Font Inspector is up to date!',
-          detail: `You are running the latest version (${app.getVersion()}).`,
-          buttons: ['OK']
-        });
-        this.cleanupManualUpdateListeners();
-      };
-
-      const onUpdateError = async (error: Error) => {
-        // Close the checking dialog first
-        if (checkingDialogShown) {
-          try {
-            // Force close any open dialogs
-            this.mainWindow?.focus();
-          } catch (e) {
-            console.log('Could not close checking dialog:', e);
-          }
-        }
-        
-        await dialog.showMessageBox(this.mainWindow!, {
-          type: 'error',
-          title: 'Update Check Failed',
-          message: 'Failed to check for updates.',
-          detail: error.message,
-          buttons: ['OK']
-        });
-        this.cleanupManualUpdateListeners();
-      };
-
-      // Add temporary event listeners
-      autoUpdater.once('update-available', onUpdateAvailable);
-      autoUpdater.once('update-not-available', onUpdateNotAvailable);
-      autoUpdater.once('error', onUpdateError);
 
       // Start the update check
-      await autoUpdater.checkForUpdates();
+      console.log('Starting manual update check...');
+      const checkForUpdatesPromise = autoUpdater.checkForUpdates();
+
+      // Wait for either the update check to complete or timeout
+      await Promise.race([updateCheckPromise, checkForUpdatesPromise]);
 
     } catch (error) {
       console.error('Manual update check failed:', error);
-      
-      // Close the checking dialog first
-      if (checkingDialogShown) {
-        try {
-          // Force close any open dialogs
-          this.mainWindow?.focus();
-        } catch (e) {
-          console.log('Could not close checking dialog:', e);
-        }
-      }
       
       await dialog.showMessageBox(this.mainWindow!, {
         type: 'error',
         title: 'Update Check Failed',
         message: 'Failed to check for updates.',
-        detail: error instanceof Error ? error.message : 'Unknown error',
+        detail: error instanceof Error ? error.message : 'Unknown error occurred while checking for updates.',
         buttons: ['OK']
       });
     } finally {
