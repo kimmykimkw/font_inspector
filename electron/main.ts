@@ -586,21 +586,34 @@ class ElectronApp {
       return;
     }
 
+    let checkingDialogShown = false;
+    
     try {
       this.isCheckingForUpdates = true;
       
-      // Show checking dialog
-      const checkingDialog = dialog.showMessageBox(this.mainWindow!, {
+      // Show checking dialog (non-blocking)
+      const checkingDialogPromise = dialog.showMessageBox(this.mainWindow!, {
         type: 'info',
         title: 'Checking for Updates',
         message: 'Checking for updates...',
         buttons: ['Cancel'],
         cancelId: 0
       });
+      checkingDialogShown = true;
 
       // Set up one-time event listeners for this manual check
-      const onUpdateAvailable = (info: any) => {
-        dialog.showMessageBox(this.mainWindow!, {
+      const onUpdateAvailable = async (info: any) => {
+        // Close the checking dialog first
+        if (checkingDialogShown) {
+          try {
+            // Force close any open dialogs
+            this.mainWindow?.focus();
+          } catch (e) {
+            console.log('Could not close checking dialog:', e);
+          }
+        }
+        
+        await dialog.showMessageBox(this.mainWindow!, {
           type: 'info',
           title: 'Update Available',
           message: `A new version (${info.version}) is available and will be downloaded in the background.`,
@@ -610,8 +623,18 @@ class ElectronApp {
         this.cleanupManualUpdateListeners();
       };
 
-      const onUpdateNotAvailable = () => {
-        dialog.showMessageBox(this.mainWindow!, {
+      const onUpdateNotAvailable = async () => {
+        // Close the checking dialog first
+        if (checkingDialogShown) {
+          try {
+            // Force close any open dialogs
+            this.mainWindow?.focus();
+          } catch (e) {
+            console.log('Could not close checking dialog:', e);
+          }
+        }
+        
+        await dialog.showMessageBox(this.mainWindow!, {
           type: 'info',
           title: 'No Updates Available',
           message: 'Font Inspector is up to date!',
@@ -621,8 +644,18 @@ class ElectronApp {
         this.cleanupManualUpdateListeners();
       };
 
-      const onUpdateError = (error: Error) => {
-        dialog.showMessageBox(this.mainWindow!, {
+      const onUpdateError = async (error: Error) => {
+        // Close the checking dialog first
+        if (checkingDialogShown) {
+          try {
+            // Force close any open dialogs
+            this.mainWindow?.focus();
+          } catch (e) {
+            console.log('Could not close checking dialog:', e);
+          }
+        }
+        
+        await dialog.showMessageBox(this.mainWindow!, {
           type: 'error',
           title: 'Update Check Failed',
           message: 'Failed to check for updates.',
@@ -642,7 +675,18 @@ class ElectronApp {
 
     } catch (error) {
       console.error('Manual update check failed:', error);
-      dialog.showMessageBox(this.mainWindow!, {
+      
+      // Close the checking dialog first
+      if (checkingDialogShown) {
+        try {
+          // Force close any open dialogs
+          this.mainWindow?.focus();
+        } catch (e) {
+          console.log('Could not close checking dialog:', e);
+        }
+      }
+      
+      await dialog.showMessageBox(this.mainWindow!, {
         type: 'error',
         title: 'Update Check Failed',
         message: 'Failed to check for updates.',

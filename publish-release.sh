@@ -2,7 +2,7 @@
 
 # Font Inspector - Release Publishing Script
 # Usage: ./publish-release.sh [patch|minor|major] [platform]
-# Platform options: mac, win, linux, all (default: all)
+# Platform options: mac, win, all (default: all)
 
 set -e  # Exit on any error
 
@@ -30,15 +30,15 @@ PLATFORM=${2:-all}
 if [[ ! "$VERSION_TYPE" =~ ^(patch|minor|major)$ ]]; then
     echo -e "${RED}❌ Invalid version type: $VERSION_TYPE${NC}"
     echo -e "${YELLOW}Usage: $0 [patch|minor|major] [platform]${NC}"
-    echo -e "${YELLOW}Platform options: mac, win, linux, all${NC}"
+    echo -e "${YELLOW}Platform options: mac, win, all${NC}"
     exit 1
 fi
 
 # Validate platform
-if [[ ! "$PLATFORM" =~ ^(mac|win|linux|all)$ ]]; then
+if [[ ! "$PLATFORM" =~ ^(mac|win|all)$ ]]; then
     echo -e "${RED}❌ Invalid platform: $PLATFORM${NC}"
     echo -e "${YELLOW}Usage: $0 [patch|minor|major] [platform]${NC}"
-    echo -e "${YELLOW}Platform options: mac, win, linux, all${NC}"
+    echo -e "${YELLOW}Platform options: mac, win, all${NC}"
     exit 1
 fi
 
@@ -74,10 +74,6 @@ publish_platform() {
             echo -e "${BLUE}🪟 Publishing Windows release...${NC}"
             npm run publish:win
             ;;
-        "linux")
-            echo -e "${BLUE}🐧 Publishing Linux release...${NC}"
-            npm run publish:linux
-            ;;
         "all")
             echo -e "${BLUE}🌍 Publishing for all platforms...${NC}"
             npm run publish:all
@@ -112,10 +108,6 @@ if [[ "$PLATFORM" == "win" || "$PLATFORM" == "all" ]]; then
     echo -e "  3. Updates will be downloaded and installed automatically"
 fi
 
-if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "all" ]]; then
-    echo -e "${BLUE}🐧 Linux:${NC}"
-    echo -e "  1. Download the AppImage or DEB package from GitHub releases"
-    echo -e "  2. Run the app - it will automatically check for updates"
-fi
+
 
 echo -e "${BLUE}ℹ️  Update check frequency: Every hour + manual check available${NC}" 
