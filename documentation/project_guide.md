@@ -130,12 +130,14 @@ The admin system is a separate Next.js web application that provides comprehensi
 ## Tech Stack
 
 ### Desktop Application:
-- **Framework**: Electron with Next.js frontend
-- **Main Process**: TypeScript-based Electron main process
-- **Renderer Process**: Next.js React application
-- **IPC Communication**: Secure Inter-Process Communication between main and renderer
-- **Native Menus**: macOS-style application menus and shortcuts
-- **Permission Management**: Native macOS permission handling for screen recording and accessibility
+- **Framework**: Electron with Next.js frontend supporting Windows, macOS, and Linux
+- **Main Process**: TypeScript-based Electron main process with cross-platform compatibility
+- **Renderer Process**: Next.js React application optimized for desktop environments
+- **IPC Communication**: Secure Inter-Process Communication between main and renderer processes
+- **Native Menus**: Platform-native application menus and shortcuts (macOS, Windows, Linux)
+- **Permission Management**: Native platform permission handling (macOS privacy permissions, Windows UAC awareness)
+- **Auto-Update System**: Cross-platform automatic updates with manual checking via native menu integration
+- **Multi-Platform Packaging**: Professional installers for all platforms (DMG/ZIP for macOS, NSIS/ZIP for Windows, AppImage/DEB for Linux)
 
 ### Frontend:
 - **Framework**: Next.js (embedded in Electron)
@@ -164,12 +166,14 @@ The admin system is a separate Next.js web application that provides comprehensi
 ## Key Functionalities
 
 ### 1. Native Desktop Experience
-- **Electron Desktop App**: Native macOS application with proper window management and system integration
-- **Application Menus**: Full macOS menu bar integration with keyboard shortcuts
-- **Window Management**: Proper window state management, minimize/maximize/close behaviors
-- **System Integration**: Native title bar, dock integration, and proper app lifecycle management
+- **Cross-Platform Desktop App**: Native application for Windows, macOS, and Linux with proper window management and system integration
+- **Platform-Native Menus**: Full menu bar integration with platform-specific conventions and keyboard shortcuts
+- **Manual Update Checking**: Native "Check for Updates..." menu item with comprehensive user feedback dialogs
+- **Window Management**: Proper window state management, minimize/maximize/close behaviors across all platforms
+- **System Integration**: Platform-appropriate integration (macOS dock, Windows taskbar, Linux desktop environments)
 - **Authentication Popups**: Seamless Firebase authentication with native popup windows
 - **External Link Handling**: Smart link management - auth popups open in-app, other links open in default browser
+- **Auto-Update Management**: Automatic hourly update checks with manual trigger capability and platform-specific installers
 
 ### 2. Advanced Permission Management
 - **macOS Permission System**: Native integration with macOS privacy and security permissions
@@ -234,13 +238,15 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Security Measures**: Sandbox execution for external website content and prevent abuse (rate limiting, request validation, user authentication).
 
 ### 8. Native Desktop Features
-- **Application Packaging**: Electron Builder configuration for macOS DMG and ZIP distributions
-- **Auto-Updates**: Built-in update mechanism for seamless app updates
-- **Performance Optimization**: Native desktop performance with proper memory management
+- **Cross-Platform Application Packaging**: Electron Builder configuration for macOS (DMG + ZIP), Windows (NSIS + ZIP), and Linux (AppImage + DEB) distributions
+- **Comprehensive Auto-Updates**: Built-in update mechanism with automatic hourly checks and manual update checking via application menu
+- **Manual Update Checking**: Native "Check for Updates..." menu item in application menu bar with user feedback dialogs
+- **Multi-Platform Update Support**: Seamless auto-updates for Windows, macOS, and Linux with platform-specific installers
+- **Performance Optimization**: Native desktop performance with proper memory management across all platforms
 - **File System Access**: Direct file system access for enhanced functionality
 - **System Notifications**: Native notification support for inspection completion
-- **Keyboard Shortcuts**: Full keyboard shortcut support following macOS conventions
-- **Dock Integration**: Proper macOS dock integration with app badge and right-click menus
+- **Keyboard Shortcuts**: Full keyboard shortcut support following platform conventions
+- **Platform Integration**: Proper system integration (macOS dock, Windows system tray, Linux desktop files)
 
 ### 9. Admin System Integration
 - **Separate Web Application**: Independent Next.js admin application for system management
@@ -279,12 +285,13 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Error Recovery**: Implement robust error recovery and fallback mechanisms
 
 ### 4. Testing & Deployment:
-- **Desktop Testing**: Comprehensive testing on macOS with various Chrome installations and permission states
-- **Permission Testing**: Test app behavior with different permission configurations
-- **Authentication Testing**: Test Firebase authentication flow in Electron environment
-- **Build Testing**: Test Electron build process and distribution packages
-- **Performance Testing**: Ensure optimal performance in desktop environment
-- **Update Testing**: Test auto-update mechanism and version migration
+- **Cross-Platform Testing**: Comprehensive testing on Windows, macOS, and Linux with various Chrome installations and permission states
+- **Platform-Specific Permission Testing**: Test app behavior with different permission configurations across all supported platforms
+- **Authentication Testing**: Test Firebase authentication flow in Electron environment across all platforms
+- **Multi-Platform Build Testing**: Test Electron build process and distribution packages for Windows (NSIS/ZIP), macOS (DMG/ZIP), and Linux (AppImage/DEB)
+- **Performance Testing**: Ensure optimal performance in desktop environment across all platforms
+- **Update Testing**: Test auto-update mechanism, manual update checking, and version migration across all platforms
+- **Windows-Specific Testing**: Test NSIS installer, Windows-native features, and Windows auto-update functionality
 
 ### 5. Admin System Development:
 - **Next.js Admin App**: Build separate web-based admin application with React and TypeScript
@@ -297,13 +304,15 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Admin UI Components**: Develop admin-specific UI components using Shadcn/UI and Tailwind CSS
 
 ### 6. Distribution & Deployment:
-- **Electron Builder Configuration**: Configure electron-builder for macOS DMG and ZIP distribution
+- **Multi-Platform Electron Builder**: Configure electron-builder for macOS (DMG + ZIP), Windows (NSIS + ZIP), and Linux (AppImage + DEB) distribution
+- **Cross-Platform Release Management**: Enhanced release script supporting platform-specific builds (`./publish-release.sh [patch|minor|major] [mac|win|linux|all]`)
+- **Windows-Specific Configuration**: Professional NSIS installer with proper ICO icons and Windows-native user experience
 - **Code Signing**: Set up proper macOS code signing for security and user trust
 - **Notarization**: Configure macOS notarization for distribution outside Mac App Store
-- **Update Server**: Set up update distribution server for automatic app updates
-- **Version Management**: Implement proper version control and release management
+- **GitHub Releases Integration**: Automated publishing to GitHub releases with proper update metadata for all platforms
+- **Version Management**: Implement proper version control and release management across all supported platforms
 - **Admin App Deployment**: Deploy admin application separately with Firebase Hosting (currently deployed and operational)
-- **Documentation**: Create user documentation for installation and usage, plus admin system documentation
+- **Platform-Specific Documentation**: Create user documentation for installation and usage across Windows, macOS, and Linux
 
 ## UI Style and Theme
 
@@ -427,3 +436,15 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Authentication Gate Enhancements**: Improved authentication flow with better error handling and user feedback
 - **API Security**: Enhanced API security with proper token validation and user verification on all endpoints
 - **Backward Compatibility**: Maintained backward compatibility while implementing new security features
+
+### Manual Update Checking & Windows Support (Latest)
+- **Manual Update Menu Integration**: Added "Check for Updates..." menu item to the application menu bar following native platform conventions
+- **User-Friendly Update Dialogs**: Implemented comprehensive update checking with native dialogs for all update states (checking, available, not available, error)
+- **Development vs Production Awareness**: Smart update checking that displays appropriate messages in development vs production environments
+- **Windows Platform Support**: Complete Windows support with professional NSIS installer, portable ZIP versions, and native ICO icons
+- **Cross-Platform Auto-Updates**: Seamless automatic updates for Windows users with hourly background checks and immediate installation
+- **Enhanced Release Script**: Multi-platform release management supporting targeted builds (`./publish-release.sh patch win` for Windows-only releases)
+- **Windows User Experience**: Professional Windows installer with desktop shortcuts, start menu integration, and proper uninstaller
+- **GitHub Integration**: Automated publishing of Windows binaries (NSIS installer + ZIP files) to GitHub releases with proper update metadata
+- **Cross-Platform Testing**: Comprehensive testing across Windows, macOS, and Linux platforms
+- **Update State Management**: Prevents duplicate update checks and provides clear user feedback throughout the update process

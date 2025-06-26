@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, shell, ipcMain, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, shell, ipcMain, systemPreferences, dialog } from 'electron';
 import { join } from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { createServer } from 'http';
@@ -65,35 +65,10 @@ const getAppDirectory = (): string => {
 const appDirectory = getAppDirectory();
 console.log(`App directory: ${appDirectory}`);
 
-// Auto-updater event handlers
+// Auto-updater basic event handlers (will be set up properly in ElectronApp)
 if (!isDev) {
   autoUpdater.on('checking-for-update', () => {
     console.log('Checking for update...');
-  });
-
-  autoUpdater.on('update-available', (info) => {
-    console.log('Update available:', info.version);
-  });
-
-  autoUpdater.on('update-not-available', (info) => {
-    console.log('Update not available:', info.version);
-  });
-
-  autoUpdater.on('error', (err) => {
-    console.error('Error in auto-updater:', err);
-  });
-
-  autoUpdater.on('download-progress', (progressObj) => {
-    let log_message = "Download speed: " + progressObj.bytesPerSecond;
-    log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
-    log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
-    console.log(log_message);
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('Update downloaded:', info.version);
-    // Auto-restart and install update
-    autoUpdater.quitAndInstall();
   });
 }
 
@@ -103,6 +78,7 @@ class ElectronApp {
   private server: any;
   private expressServer: ChildProcess | null = null;
   private actualServerPort: number = Number(port); // Store the actual port the server starts on
+  private isCheckingForUpdates: boolean = false; // Track update check state
 
   constructor() {
     // Make sure app is ready before creating windows
@@ -451,6 +427,12 @@ class ElectronApp {
         submenu: [
           { label: 'About Font Inspector', role: 'about' },
           { type: 'separator' },
+          { 
+            label: 'Check for Updates...', 
+            click: () => this.checkForUpdatesManually(),
+            enabled: !isDev // Only enable in production
+          },
+          { type: 'separator' },
           { label: 'Hide Font Inspector', accelerator: 'Command+H', role: 'hide' },
           { label: 'Hide Others', accelerator: 'Command+Shift+H', role: 'hideOthers' },
           { label: 'Show All', role: 'unhide' },
@@ -542,9 +524,31 @@ class ElectronApp {
         throw error;
       }
     });
+
+    // Manual update check handler
+    ipcMain.handle('app:checkForUpdates', async () => {
+      try {
+        await this.checkForUpdatesManually();
+        return { success: true };
+      } catch (error) {
+        console.error('Manual update check failed:', error);
+        return { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Unknown error' 
+        };
+      }
+    });
+
+    // Get app version handler
+    ipcMain.handle('app:getVersion', () => {
+      return app.getVersion();
+    });
   }
 
   private initializeAutoUpdater(): void {
+    // Set up auto-updater event listeners
+    this.setupAutoUpdaterListeners();
+    
     // Check for updates when app is ready
     app.whenReady().then(() => {
       // Wait a bit after startup to check for updates
@@ -557,6 +561,135 @@ class ElectronApp {
     setInterval(() => {
       autoUpdater.checkForUpdatesAndNotify();
     }, 60 * 60 * 1000);
+  }
+
+  private async checkForUpdatesManually(): Promise<void> {
+    if (isDev) {
+      // Show dialog in development mode
+      dialog.showMessageBox(this.mainWindow!, {
+        type: 'info',
+        title: 'Development Mode',
+        message: 'Update checking is disabled in development mode.',
+        buttons: ['OK']
+      });
+      return;
+    }
+
+    if (this.isCheckingForUpdates) {
+      // Show dialog if already checking
+      dialog.showMessageBox(this.mainWindow!, {
+        type: 'info',
+        title: 'Already Checking',
+        message: 'Already checking for updates. Please wait...',
+        buttons: ['OK']
+      });
+      return;
+    }
+
+    try {
+      this.isCheckingForUpdates = true;
+      
+      // Show checking dialog
+      const checkingDialog = dialog.showMessageBox(this.mainWindow!, {
+        type: 'info',
+        title: 'Checking for Updates',
+        message: 'Checking for updates...',
+        buttons: ['Cancel'],
+        cancelId: 0
+      });
+
+      // Set up one-time event listeners for this manual check
+      const onUpdateAvailable = (info: any) => {
+        dialog.showMessageBox(this.mainWindow!, {
+          type: 'info',
+          title: 'Update Available',
+          message: `A new version (${info.version}) is available and will be downloaded in the background.`,
+          detail: 'You will be notified when the update is ready to install.',
+          buttons: ['OK']
+        });
+        this.cleanupManualUpdateListeners();
+      };
+
+      const onUpdateNotAvailable = () => {
+        dialog.showMessageBox(this.mainWindow!, {
+          type: 'info',
+          title: 'No Updates Available',
+          message: 'Font Inspector is up to date!',
+          detail: `You are running the latest version (${app.getVersion()}).`,
+          buttons: ['OK']
+        });
+        this.cleanupManualUpdateListeners();
+      };
+
+      const onUpdateError = (error: Error) => {
+        dialog.showMessageBox(this.mainWindow!, {
+          type: 'error',
+          title: 'Update Check Failed',
+          message: 'Failed to check for updates.',
+          detail: error.message,
+          buttons: ['OK']
+        });
+        this.cleanupManualUpdateListeners();
+      };
+
+      // Add temporary event listeners
+      autoUpdater.once('update-available', onUpdateAvailable);
+      autoUpdater.once('update-not-available', onUpdateNotAvailable);
+      autoUpdater.once('error', onUpdateError);
+
+      // Start the update check
+      await autoUpdater.checkForUpdates();
+
+    } catch (error) {
+      console.error('Manual update check failed:', error);
+      dialog.showMessageBox(this.mainWindow!, {
+        type: 'error',
+        title: 'Update Check Failed',
+        message: 'Failed to check for updates.',
+        detail: error instanceof Error ? error.message : 'Unknown error',
+        buttons: ['OK']
+      });
+    } finally {
+      this.isCheckingForUpdates = false;
+    }
+  }
+
+  private cleanupManualUpdateListeners(): void {
+    this.isCheckingForUpdates = false;
+    // Remove all temporary listeners to prevent memory leaks
+    autoUpdater.removeAllListeners('update-available');
+    autoUpdater.removeAllListeners('update-not-available');
+    autoUpdater.removeAllListeners('error');
+    
+    // Re-add the original event listeners
+    this.setupAutoUpdaterListeners();
+  }
+
+  private setupAutoUpdaterListeners(): void {
+    autoUpdater.on('update-available', (info) => {
+      console.log('Update available:', info.version);
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      console.log('Update not available:', info.version);
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('Error in auto-updater:', err);
+    });
+
+    autoUpdater.on('download-progress', (progressObj) => {
+      let log_message = "Download speed: " + progressObj.bytesPerSecond;
+      log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
+      log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
+      console.log(log_message);
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log('Update downloaded:', info.version);
+      // Auto-restart and install update
+      autoUpdater.quitAndInstall();
+    });
   }
 
   private cleanup(): void {

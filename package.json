@@ -171,7 +171,9 @@
           ]
         }
       ],
-      "icon": "electron/assets/icon.png"
+      "icon": "electron/assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false
     },
     "linux": {
       "target": [
@@ -211,7 +213,14 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "electron/assets/icon.ico",
+      "uninstallerIcon": "electron/assets/icon.ico",
+      "installerHeaderIcon": "electron/assets/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "shortcutName": "Font Inspector",
+      "uninstallDisplayName": "Font Inspector"
     },
     "publish": {
       "provider": "github",

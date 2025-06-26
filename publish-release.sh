@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Font Inspector - Release Publishing Script
-# Usage: ./publish-release.sh [patch|minor|major]
+# Usage: ./publish-release.sh [patch|minor|major] [platform]
+# Platform options: mac, win, linux, all (default: all)
 
 set -e  # Exit on any error
 
@@ -23,11 +24,21 @@ fi
 
 # Default to patch if no argument provided
 VERSION_TYPE=${1:-patch}
+PLATFORM=${2:-all}
 
 # Validate version type
 if [[ ! "$VERSION_TYPE" =~ ^(patch|minor|major)$ ]]; then
     echo -e "${RED}❌ Invalid version type: $VERSION_TYPE${NC}"
-    echo -e "${YELLOW}Usage: $0 [patch|minor|major]${NC}"
+    echo -e "${YELLOW}Usage: $0 [patch|minor|major] [platform]${NC}"
+    echo -e "${YELLOW}Platform options: mac, win, linux, all${NC}"
+    exit 1
+fi
+
+# Validate platform
+if [[ ! "$PLATFORM" =~ ^(mac|win|linux|all)$ ]]; then
+    echo -e "${RED}❌ Invalid platform: $PLATFORM${NC}"
+    echo -e "${YELLOW}Usage: $0 [patch|minor|major] [platform]${NC}"
+    echo -e "${YELLOW}Platform options: mac, win, linux, all${NC}"
     exit 1
 fi
 
@@ -49,13 +60,62 @@ echo -e "${BLUE}🔄 Pushing to GitHub...${NC}"
 git push origin main
 git push origin $NEW_VERSION
 
-echo -e "${BLUE}🏗️  Building and publishing release...${NC}"
-npm run publish:mac
+echo -e "${BLUE}🏗️  Building and publishing release for $PLATFORM...${NC}"
 
-echo -e "${GREEN}🎉 Release $NEW_VERSION published successfully!${NC}"
+# Function to publish for specific platform
+publish_platform() {
+    local platform=$1
+    case $platform in
+        "mac")
+            echo -e "${BLUE}📱 Publishing macOS release...${NC}"
+            npm run publish:mac
+            ;;
+        "win")
+            echo -e "${BLUE}🪟 Publishing Windows release...${NC}"
+            npm run publish:win
+            ;;
+        "linux")
+            echo -e "${BLUE}🐧 Publishing Linux release...${NC}"
+            npm run publish:linux
+            ;;
+        "all")
+            echo -e "${BLUE}🌍 Publishing for all platforms...${NC}"
+            npm run publish:all
+            ;;
+    esac
+}
+
+# Check if building for Windows on macOS
+if [[ "$PLATFORM" == "win" || "$PLATFORM" == "all" ]] && [[ "$(uname)" == "Darwin" ]]; then
+    echo -e "${YELLOW}⚠️  Building Windows binaries on macOS...${NC}"
+    echo -e "${BLUE}ℹ️  Note: Windows builds on macOS may have limitations${NC}"
+fi
+
+# Publish the release
+publish_platform $PLATFORM
+
+echo -e "${GREEN}🎉 Release $NEW_VERSION published successfully for $PLATFORM!${NC}"
 echo -e "${BLUE}📱 Check your release at: https://github.com/kimmykimkw/font_inspector/releases${NC}"
 
 echo -e "${YELLOW}🔧 To test auto-updates:${NC}"
-echo -e "1. Install the previous version from GitHub releases"
-echo -e "2. Run the app - it will automatically check for updates"
-echo -e "3. Within an hour, it should prompt to update to $NEW_VERSION" 
+if [[ "$PLATFORM" == "mac" || "$PLATFORM" == "all" ]]; then
+    echo -e "${BLUE}📱 macOS:${NC}"
+    echo -e "  1. Download and install the DMG from GitHub releases"
+    echo -e "  2. Run the app - it will automatically check for updates"
+    echo -e "  3. Or use Font Inspector → Check for Updates... from the menu"
+fi
+
+if [[ "$PLATFORM" == "win" || "$PLATFORM" == "all" ]]; then
+    echo -e "${BLUE}🪟 Windows:${NC}"
+    echo -e "  1. Download and install the NSIS installer from GitHub releases"
+    echo -e "  2. Run the app - it will automatically check for updates"
+    echo -e "  3. Updates will be downloaded and installed automatically"
+fi
+
+if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "all" ]]; then
+    echo -e "${BLUE}🐧 Linux:${NC}"
+    echo -e "  1. Download the AppImage or DEB package from GitHub releases"
+    echo -e "  2. Run the app - it will automatically check for updates"
+fi
+
+echo -e "${BLUE}ℹ️  Update check frequency: Every hour + manual check available${NC}" 

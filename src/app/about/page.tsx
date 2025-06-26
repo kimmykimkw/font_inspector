@@ -102,8 +102,8 @@ export default function AboutPage() {
               For support, feedback, or questions, please reach out through the application's feedback channel on the <a href="/help" className="text-primary hover:underline">help page</a>.
             </p>
           </section>
-        </CardContent>
-      </Card>
+                  </CardContent>
+        </Card>
     </div>
   );
 } 

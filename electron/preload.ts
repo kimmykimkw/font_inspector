@@ -14,6 +14,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkAccessibilityPermission: () => ipcRenderer.invoke('permissions:checkAccessibility'),
   openSystemSettings: (path: string) => ipcRenderer.invoke('system:openSettings', path),
   
+  // Update checking methods
+  checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  
   // File system operations (if needed in the future)
   // We can add more APIs here as needed
   
@@ -22,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Whitelist of allowed IPC channels
     const validChannels = [
       'app:getVersion',
+      'app:checkForUpdates',
       'app:quit',
       'window:minimize',
       'window:maximize',
@@ -88,6 +93,8 @@ declare global {
       checkScreenRecordingPermission: () => Promise<boolean>;
       checkAccessibilityPermission: () => Promise<boolean>;
       openSystemSettings: (path: string) => Promise<void>;
+      checkForUpdates: () => Promise<{ success: boolean; error?: string }>;
+      getAppVersion: () => Promise<string>;
       invoke: (channel: string, ...args: any[]) => Promise<any>;
       send: (channel: string, ...args: any[]) => void;
       on: (channel: string, callback: (...args: any[]) => void) => void;
