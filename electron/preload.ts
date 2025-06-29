@@ -18,6 +18,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   
+  // Screenshot methods
+  getScreenshot: (filepath: string) => ipcRenderer.invoke('get-screenshot', filepath),
+  screenshotExists: (filepath: string) => ipcRenderer.invoke('screenshot-exists', filepath),
+  deleteScreenshots: (directoryPath: string) => ipcRenderer.invoke('delete-screenshots', directoryPath),
+  exportScreenshots: (sourcePath: string, exportPath: string) => ipcRenderer.invoke('export-screenshots', sourcePath, exportPath),
+  
   // File system operations (if needed in the future)
   // We can add more APIs here as needed
   
@@ -36,7 +42,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'window:close',
       'permissions:checkScreenRecording',
       'permissions:checkAccessibility',
-      'system:openSettings'
+      'system:openSettings',
+      'get-screenshot',
+      'screenshot-exists',
+      'delete-screenshots',
+      'export-screenshots'
     ];
     
     if (validChannels.includes(channel)) {
@@ -109,6 +119,10 @@ declare global {
       openSystemSettings: (path: string) => Promise<void>;
       checkForUpdates: () => Promise<{ success: boolean; error?: string }>;
       getAppVersion: () => Promise<string>;
+      getScreenshot: (filepath: string) => Promise<string | null>;
+      screenshotExists: (filepath: string) => Promise<boolean>;
+      deleteScreenshots: (directoryPath: string) => Promise<boolean>;
+      exportScreenshots: (sourcePath: string, exportPath: string) => Promise<boolean>;
       invoke: (channel: string, ...args: any[]) => Promise<any>;
       send: (channel: string, ...args: any[]) => void;
       on: (channel: string, callback: (...args: any[]) => void) => void;

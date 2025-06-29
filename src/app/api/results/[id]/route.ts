@@ -64,7 +64,16 @@ export async function GET(
       createdAt: formatTimestamp(inspection.createdAt),
       updatedAt: formatTimestamp(inspection.updatedAt),
       projectId: inspection.projectId,
-      userId: inspection.userId
+      userId: inspection.userId,
+      ...(inspection.screenshots ? { 
+        screenshots: {
+          original: inspection.screenshots.original,
+          annotated: inspection.screenshots.annotated,
+          capturedAt: formatTimestamp(inspection.screenshots.capturedAt),
+          dimensions: inspection.screenshots.dimensions,
+          annotationCount: inspection.screenshots.annotationCount
+        }
+      } : {}) // Include screenshots if they exist
     };
     
     console.log(`API: Successfully retrieved inspection with ID: ${id} for user: ${userId}`);

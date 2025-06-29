@@ -356,6 +356,11 @@ class ElectronApp {
         stdio: 'pipe',
         shell: true,
         cwd: appDirectory,
+        env: { 
+          ...process.env, 
+          ELECTRON_APP: 'true',
+          NODE_ENV: 'development'
+        }
       });
     } else {
       // Production: Start Express server directly
@@ -369,7 +374,11 @@ class ElectronApp {
         this.expressServer = spawn('node', [serverPath], {
           stdio: 'pipe',
           cwd: appDirectory,
-          env: { ...process.env, NODE_ENV: 'production' }
+          env: { 
+            ...process.env, 
+            NODE_ENV: 'production',
+            ELECTRON_APP: 'true'
+          }
         });
       } catch (error) {
         console.error('Failed to start Express server in production:', error);
@@ -481,6 +490,61 @@ class ElectronApp {
   }
 
   private setupIpcHandlers(): void {
+    // Screenshot IPC handlers
+    ipcMain.handle('get-screenshot', async (event, filepath: string) => {
+      try {
+        const fs = require('fs-extra');
+        if (await fs.pathExists(filepath)) {
+          const buffer = await fs.readFile(filepath);
+          return buffer.toString('base64');
+        }
+        return null;
+      } catch (error) {
+        console.error('Error reading screenshot:', error);
+        return null;
+      }
+    });
+
+    ipcMain.handle('screenshot-exists', async (event, filepath: string) => {
+      try {
+        const fs = require('fs-extra');
+        return await fs.pathExists(filepath);
+      } catch (error) {
+        console.error('Error checking screenshot existence:', error);
+        return false;
+      }
+    });
+
+    ipcMain.handle('delete-screenshots', async (event, directoryPath: string) => {
+      try {
+        const fs = require('fs-extra');
+        if (await fs.pathExists(directoryPath)) {
+          await fs.remove(directoryPath);
+          console.log(`Deleted screenshots directory: ${directoryPath}`);
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Error deleting screenshots:', error);
+        return false;
+      }
+    });
+
+    ipcMain.handle('export-screenshots', async (event, sourcePath: string, exportPath: string) => {
+      try {
+        const fs = require('fs-extra');
+        if (!await fs.pathExists(sourcePath)) {
+          throw new Error('Screenshots not found');
+        }
+        await fs.copy(sourcePath, exportPath);
+        return true;
+      } catch (error) {
+        console.error('Error exporting screenshots:', error);
+        throw error;
+      }
+    });
+    
+    // Existing permission handlers
     // Permission checking handlers
     ipcMain.handle('permissions:checkScreenRecording', async () => {
       try {

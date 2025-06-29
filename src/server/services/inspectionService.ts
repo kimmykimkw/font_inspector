@@ -1,6 +1,23 @@
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import { extractFontMetadata, isLikelyParseable, getMetadataSummary } from '../../lib/font-metadata-extractor';
 
+// Utility function to check if running in Electron environment
+function isElectronEnvironment(): boolean {
+  const hasElectronEnv = process.env.ELECTRON_APP === 'true';
+  const hasElectronVersions = typeof process.versions?.electron !== 'undefined';
+  const isElectron = hasElectronEnv || hasElectronVersions;
+  
+  // Only log in development mode
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 Environment Detection:', {
+      ELECTRON_APP: process.env.ELECTRON_APP,
+      isElectron
+    });
+  }
+  
+  return isElectron;
+}
+
 // Interfaces for font metadata
 export interface FontMetadata {
   foundry: string | null;           // Font foundry (Monotype, Adobe, etc.)
@@ -47,10 +64,24 @@ export interface InspectionResult {
   downloadedFonts: FontFile[];
   fontFaceDeclarations: FontFaceDeclaration[];
   activeFonts: ActiveFont[];
+  screenshots?: {
+    original: string;
+    annotated: string;
+    capturedAt: Date;
+    dimensions: {
+      width: number;
+      height: number;
+    };
+    annotationCount: number;
+  };
 }
 
 // Function to inspect a website for font usage
-export async function inspectWebsite(url: string): Promise<InspectionResult> {
+export async function inspectWebsite(url: string, options?: { 
+  captureScreenshots?: boolean;
+  userId?: string;
+  inspectionId?: string;
+}): Promise<InspectionResult> {
   let browser: Browser | null = null;
   
   try {
@@ -184,10 +215,79 @@ export async function inspectWebsite(url: string): Promise<InspectionResult> {
     // Process results to ensure consistent font naming
     const processedFonts = processDownloadedFonts(downloadedFonts);
     
+    // Capture screenshots if requested and in Electron environment
+    let screenshotData;
+    if (options?.captureScreenshots && options?.userId && options?.inspectionId && isElectronEnvironment()) {
+      try {
+        console.log('Capturing screenshots...');
+        
+        // Dynamically import screenshot service only in Electron environment
+        const { screenshotManager, addFontAnnotations } = await import('./screenshotService');
+        
+        // Get page dimensions
+        const dimensions = await page.evaluate(() => ({
+          width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+          height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
+        }));
+        
+        // Take original screenshot
+        const originalScreenshot = await page.screenshot({ 
+          fullPage: true,
+          type: 'png'
+        });
+        
+        // Add font annotations
+        const annotationCount = await addFontAnnotations(page, { 
+          activeFonts, 
+          downloadedFonts: processedFonts 
+        });
+        
+        // Take annotated screenshot
+        const annotatedScreenshot = await page.screenshot({ 
+          fullPage: true,
+          type: 'png'
+        });
+        
+        // Save screenshots locally
+        const screenshotPaths = await screenshotManager.saveInspectionScreenshot(
+          options.userId,
+          options.inspectionId,
+          Buffer.from(originalScreenshot),
+          Buffer.from(annotatedScreenshot),
+          {
+            url,
+            capturedAt: new Date(),
+            dimensions,
+            annotationCount
+          }
+        );
+        
+        screenshotData = {
+          original: screenshotPaths.original,
+          annotated: screenshotPaths.annotated,
+          capturedAt: new Date(),
+          dimensions,
+          annotationCount
+        };
+        
+        console.log(`Screenshots captured and saved: ${annotationCount} font annotations`);
+      } catch (screenshotError) {
+        console.error('Error capturing screenshots:', screenshotError);
+        console.log('Screenshots not available in non-Electron environment');
+        // Continue without screenshots - don't fail the entire inspection
+        screenshotData = undefined;
+      }
+    } else if (options?.captureScreenshots && (!options?.userId || !options?.inspectionId)) {
+      console.log('Screenshot capture skipped: missing userId or inspectionId');
+    } else if (options?.captureScreenshots && !isElectronEnvironment()) {
+      console.log('Screenshot capture skipped: not in Electron environment');
+    }
+    
     return {
       downloadedFonts: processedFonts,
       fontFaceDeclarations,
-      activeFonts
+      activeFonts,
+      ...(screenshotData && { screenshots: screenshotData })
     };
   } catch (error) {
     console.error('Error during website inspection:', error);

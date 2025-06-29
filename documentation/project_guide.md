@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Font Inspector is a **Desktop Application** built with Electron that analyzes websites and reports which font files are downloaded and actively used. The tool utilizes a headless browser to inspect the network requests of a given website, filters font-related assets, and provides insights by comparing CSS declarations with actual applied fonts. **Advanced Font Compliance Features** include comprehensive font metadata extraction that identifies font foundries, copyright information, licensing terms, and embedding permissions to support legal compliance auditing. The app supports both individual website inspections and projects containing multiple websites, offering a user-friendly desktop interface, robust backend inspection, and native macOS integration with proper permission handling.
+Font Inspector is a **Desktop Application** built with Electron that analyzes websites and reports which font files are downloaded and actively used. The tool utilizes a headless browser to inspect the network requests of a given website, filters font-related assets, and provides insights by comparing CSS declarations with actual applied fonts. **Advanced Font Compliance Features** include comprehensive font metadata extraction that identifies font foundries, copyright information, licensing terms, and embedding permissions to support legal compliance auditing. **Interactive Screenshot Functionality** captures both original and annotated website screenshots with smart font highlighting, showing colored borders around text elements with always-visible font labels for visual font identification. The app supports both individual website inspections and projects containing multiple websites, offering a user-friendly desktop interface, robust backend inspection, and native macOS integration with proper permission handling.
 
 **Authentication**: The app requires Google authentication to ensure user data privacy and personalized experience. Each user's inspections, projects, and history are completely isolated from other users. Access to the application is controlled through an admin-managed approval system with granular permission controls and usage limits.
 
@@ -53,6 +53,13 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
   - **Version & Designer**: Font version numbers and designer information
   - **Creation Dates**: Font file creation timestamps
 - **Active Fonts**: Visual display of fonts actively used on each website (preview text).
+- **Screenshots**: Interactive screenshot viewer with tabbed interface showing:
+  - **Original Screenshot**: Clean website capture without annotations
+  - **Font Annotations**: Annotated screenshot with colored borders around text elements and always-visible font labels
+  - **Zoom & Pan**: Full zoom and pan functionality for detailed inspection
+  - **Download Options**: Download buttons for both original and annotated screenshots
+  - **Full-Height Display**: Screenshots display at full height with scrolling for complete visibility
+  - **Smart Annotation System**: Intelligent filtering showing only meaningful web fonts (maximum ~50 annotations for readability)
 - **Inspection Log**: Detailed view of network requests and @font-face declarations per website.
 - **Enhanced CSV Export**: Comprehensive CSV export functionality with intelligent font family detection and metadata that includes:
   - **Font Family Identification**: Automatically matches downloaded font files with their CSS @font-face declarations to provide accurate font family names
@@ -163,9 +170,12 @@ The admin system is a separate Next.js web application that provides comprehensi
 ### Backend:
 - **Environment**: Node.js (running as separate process in Electron)
 - **Inspection Engine**: puppeteer-core (with explicit Chrome path management)
+- **Screenshot System**: Integrated screenshot capture with dual-generation (original + annotated)
+- **Font Annotation Engine**: Smart annotation system with DOM manipulation and visual overlay generation
+- **Local File Management**: File system operations for screenshot storage and retrieval via Electron IPC
 - **Font Metadata Analysis**: opentype.js and fontkit for comprehensive font metadata extraction
 - **API Framework**: Express.js
-- **Database**: Firebase/Firestore for storing user-specific inspection results and project data
+- **Database**: Firebase/Firestore for storing user-specific inspection results and project data (excluding screenshots for cost optimization)
 - **Authentication**: Firebase Auth for user verification and JWT token validation
 - **Chrome Management**: Automatic Chrome/Chromium executable detection and path resolution
 
@@ -241,6 +251,14 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Network Request Interception**: Filter and log requests for font files (.woff, .woff2, .ttf, etc.)
 - **CSS Parsing**: Extract @font-face rules to identify intended fonts
 - **Font Usage Detection**: Evaluate computed styles in the DOM to determine actively used fonts
+- **Screenshot Capture System**: Comprehensive website screenshot functionality with:
+  - **Dual Screenshot Generation**: Captures both original and annotated versions of each website
+  - **Smart Font Annotation**: Intelligent annotation system that highlights text elements with colored borders and labels
+  - **Local File Storage**: Screenshots stored locally in user's filesystem (~/FontInspector/screenshots/) to optimize costs and performance
+  - **Environment Detection**: Conditional screenshot capture only in Electron desktop environment
+  - **Annotation Filtering**: Smart filtering system that excludes system fonts and focuses on meaningful web fonts
+  - **Annotation Limits**: Maximum ~50 annotations per page for optimal readability and performance
+  - **Visual Design**: Clean colored borders around text elements with always-visible font labels and connecting lines
 - **Font Metadata Extraction**: Comprehensive metadata extraction from font files including:
   - **Foundry/Manufacturer Information**: Identify font creators and publishers
   - **Copyright and Licensing**: Extract embedded copyright notices and license terms
@@ -262,8 +280,10 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Comprehensive Auto-Updates**: Built-in update mechanism with automatic hourly checks and manual update checking via application menu
 - **Manual Update Checking**: Native "Check for Updates..." menu item in application menu bar with user feedback dialogs
 - **Multi-Platform Update Support**: Seamless auto-updates for Windows, macOS, and Linux with platform-specific installers
+- **Local Screenshot Storage**: Native file system integration for screenshot storage and management with organized directory structure
+- **IPC Communication**: Secure Inter-Process Communication for screenshot file operations between main and renderer processes
 - **Performance Optimization**: Native desktop performance with proper memory management across all platforms
-- **File System Access**: Direct file system access for enhanced functionality
+- **File System Access**: Direct file system access for enhanced functionality including screenshot management
 - **System Notifications**: Native notification support for inspection completion
 - **Keyboard Shortcuts**: Full keyboard shortcut support following platform conventions
 - **Platform Integration**: Proper system integration (macOS dock, Windows system tray, Linux desktop files)
@@ -347,6 +367,30 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Rationale**: Chosen for its adaptability to desktop environments, seamless integration with Electron/Next.js/Tailwind, customizable components, and professional desktop application aesthetic
 
 ## Recent Major Updates
+
+### Screenshot Feature Implementation (Latest)
+- **Interactive Screenshot Viewer**: Implemented comprehensive screenshot functionality with dual-view tabbed interface showing original and annotated website captures
+- **Smart Font Annotation System**: Advanced annotation system that highlights text elements with colored borders and always-visible font labels, filtering out system fonts to show only meaningful web fonts
+- **Local File Storage**: Cost-optimized screenshot storage using local filesystem (~/FontInspector/screenshots/) instead of cloud storage, with organized directory structure per user and inspection
+- **Intelligent Annotation Filtering**: Smart filtering system that excludes system fonts (-apple-system, Times, Arial, etc.) and focuses on downloaded web fonts with maximum ~50 annotations for optimal readability
+- **Full-Height Screenshot Display**: Enhanced UI allowing users to view entire screenshot height with scrolling, eliminating fixed-height container constraints
+- **Zoom & Pan Functionality**: Interactive screenshot viewer with zoom controls, pan capability, and download options for both original and annotated versions
+- **Environment-Aware Capture**: Conditional screenshot functionality that only operates in Electron desktop environment with proper fallback handling
+- **Annotation Visual Design**: Clean visual design with colored borders around text elements, always-visible font labels, and connecting lines for clear font identification
+- **Performance Optimization**: Efficient screenshot capture and annotation processing with graceful error handling and minimal impact on inspection performance
+- **Data Flow Optimization**: Smart context data checking to prevent unnecessary API calls and authentication errors when screenshot data already exists
+
+### Font Metadata & Error Handling Enhancements
+- **Fixed Font Metadata Extraction**: Resolved critical issue where font metadata always showed "not available" despite WOFF2 files containing comprehensive metadata in the name table
+- **OpenType.js Integration Fix**: Fixed metadata extraction by properly handling OpenType.js name table objects vs strings, enabling extraction of font names, copyright, version, license info, and foundry data
+- **Metadata-First Font Naming**: Implemented 4-tier priority system for font names: metadata → active fonts → CSS declarations → filename fallback for maximum accuracy
+- **Enhanced Active Fonts Display**: Added font file names with extensions for web fonts, providing users with clear visibility of downloaded font files alongside font family names
+- **System Font Detection**: Implemented intelligent system font identification with proper labeling (e.g., "System font - Times New Roman") to distinguish between web fonts and pre-installed system fonts
+- **Sophisticated Font Matching**: Created advanced font-to-file matching algorithms using multiple strategies including filename matching, common prefix detection, and word-based matching to accurately correlate fonts with their source files
+- **Specific Error Messages**: Replaced generic "Analysis failed. Please try again." messages with detailed, specific failure reasons to help users understand and resolve inspection issues
+- **Comprehensive Font Metadata Extraction**: Enhanced metadata extraction to include font foundry, copyright information, version numbers, license details, embedding permissions, designer info, and creation dates
+- **Improved Error Handling**: Added extensive debugging capabilities and graceful error handling throughout the font processing pipeline
+- **Enhanced CSV Export Integration**: Updated CSV exports to leverage improved font metadata and accurate font family identification for better reporting
 
 ### UI/UX and Branding Updates (Current)
 - **Title Simplification**: Streamlined application branding by removing "by Kimmy" from main titles (Header, Welcome Banner, Login Page) while retaining attribution in footer

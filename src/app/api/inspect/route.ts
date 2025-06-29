@@ -105,8 +105,26 @@ export async function POST(request: Request) {
     }
 
     try {
-      // Use puppeteer service to inspect the website
-      const result = await inspectWebsite(normalizedUrl);
+      // Generate a unique inspection ID for screenshot storage
+      const crypto = require('crypto');
+      const inspectionId = crypto.randomUUID();
+      
+      // Check if we're in Electron environment for screenshots
+      const hasElectronEnv = process.env.ELECTRON_APP === 'true';
+      const hasElectronVersions = typeof process.versions?.electron !== 'undefined';
+      const isElectronEnv = hasElectronEnv || hasElectronVersions;
+      
+            // Only log environment detection in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔍 API Route Environment Detection: Electron =', isElectronEnv);
+      }
+      
+      // Use puppeteer service to inspect the website with screenshot options
+      const result = await inspectWebsite(normalizedUrl, {
+        captureScreenshots: isElectronEnv, // Only enable screenshots in Electron
+        userId: userId,
+        inspectionId: inspectionId
+      });
       logger.debug(`Website inspection completed`);
       
       // Save results to Firebase with user association

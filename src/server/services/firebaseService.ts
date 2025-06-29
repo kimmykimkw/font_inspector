@@ -47,7 +47,16 @@ export const saveInspectionResult = async (url: string, result: InspectionResult
       activeFonts: convertedActiveFonts,
       userId: userId, // Required field
       status: 'completed' as const, // Mark as completed
-      ...(projectId ? { projectId } : {}) // Only add projectId if it exists
+      ...(projectId ? { projectId } : {}), // Only add projectId if it exists
+      ...(result.screenshots ? { 
+        screenshots: {
+          original: result.screenshots.original,
+          annotated: result.screenshots.annotated,
+          capturedAt: Timestamp.fromDate(result.screenshots.capturedAt),
+          dimensions: result.screenshots.dimensions,
+          annotationCount: result.screenshots.annotationCount
+        }
+      } : {}) // Only add screenshots if they exist
     };
 
     console.log('Creating inspection with data:', {

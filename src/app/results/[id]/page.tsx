@@ -25,9 +25,11 @@ import {
   FolderOpen,
   Search,
   TrendingUp,
-  Info
+  Info,
+  Camera
 } from "lucide-react";
 import { FontMetadata } from '@/lib/models/inspection';
+import { ScreenshotViewer } from "@/components/ScreenshotViewer";
 
 // Types for MongoDB inspection data
 interface InspectionData {
@@ -40,6 +42,16 @@ interface InspectionData {
   createdAt?: Date;
   updatedAt?: Date;
   projectId?: string;
+  screenshots?: {
+    original: string;
+    annotated: string;
+    capturedAt: Date | string;
+    dimensions?: {
+      width: number;
+      height: number;
+    };
+    annotationCount?: number;
+  };
 }
 
 interface FontFile {
@@ -110,7 +122,8 @@ const normalizeInspectionData = (data: any): InspectionData | null => {
       activeFonts: normalizedActiveFonts,
       fontFaceDeclarations: result.fontFaceDeclarations || [],
       createdAt: data.createdAt,
-      projectId: projectId
+      projectId: projectId,
+      screenshots: result.screenshots || undefined
     };
   } else if (data.downloadedFonts) {
     // MongoDB format (from API)
@@ -133,7 +146,8 @@ const normalizeInspectionData = (data: any): InspectionData | null => {
     return {
       ...data,
       activeFonts: normalizedActiveFonts,
-      projectId: projectId
+      projectId: projectId,
+      screenshots: data.screenshots || undefined
     };
   }
   
@@ -144,7 +158,7 @@ export default function ResultsPage() {
   const params = useParams();
   const router = useRouter();
   const { getInspectionById } = useInspection();
-  const [activeTab, setActiveTab] = useState("summary");
+  const [activeTab, setActiveTab] = useState("fonts");
   const [isLoading, setIsLoading] = useState(true);
   const [inspection, setInspection] = useState<InspectionData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,19 +180,24 @@ export default function ResultsPage() {
       try {
         setIsLoading(true);
         
-        // First check if this is a recent inspection in memory (from InspectionContext)
+        // First check if context data already has screenshots
         const contextInspection = getInspectionById(id);
         
         if (contextInspection?.result) {
-          // We have it in context, use it directly
-          console.log("Found inspection in context:", contextInspection);
-          console.log("Inspection projectId from context:", contextInspection.projectId);
-          const normalizedData = normalizeInspectionData(contextInspection);
-          setInspection(normalizedData);
-          return;
+          const normalizedContextData = normalizeInspectionData(contextInspection);
+          
+          // If context data has screenshots, use it directly (no need for API call)
+          if (normalizedContextData?.screenshots) {
+            console.log("Found inspection with screenshots in context, using directly");
+            setInspection(normalizedContextData);
+            setIsLoading(false);
+            return;
+          }
         }
         
-        // Not in context, try to fetch from MongoDB API
+        // Only fetch from API if screenshots are missing or no context data exists
+        console.log("Screenshots missing or no context data, fetching from API...");
+        
         // Get authentication token for API request
         const { auth } = await import('@/lib/firebase-client');
         const user = auth?.currentUser;
@@ -237,10 +256,22 @@ export default function ResultsPage() {
         const normalizedData = normalizeInspectionData(data);
         setInspection(normalizedData);
       } catch (error) {
-        console.error("Error fetching inspection:", error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        setError(errorMessage);
-        toast.error("Failed to load inspection");
+        console.error("Error fetching inspection from API:", error);
+        
+        // Fallback to InspectionContext if API fails
+        console.log("Attempting to fallback to InspectionContext...");
+        const contextInspection = getInspectionById(id);
+        
+        if (contextInspection?.result) {
+          console.log("Found inspection in context as fallback:", contextInspection);
+          const normalizedData = normalizeInspectionData(contextInspection);
+          setInspection(normalizedData);
+          toast.info("Loaded inspection from cache (screenshots may not be available)");
+        } else {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          setError(errorMessage);
+          toast.error("Failed to load inspection");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -563,88 +594,44 @@ export default function ResultsPage() {
         </Card>
 
         {/* Tabs for Results Sections */}
-        <Tabs defaultValue="summary" onValueChange={setActiveTab} className="w-full">
+        <Tabs defaultValue="fonts" onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid grid-cols-3 mb-4">
-            <TabsTrigger value="summary" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              Summary
-            </TabsTrigger>
             <TabsTrigger value="fonts" className="flex items-center gap-2">
               <Download className="h-4 w-4" />
               Downloaded Fonts
+              {summary.totalFonts > 0 && (
+                <span className="ml-1 text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5">
+                  {summary.totalFonts}
+                </span>
+              )}
             </TabsTrigger>
             <TabsTrigger value="active" className="flex items-center gap-2">
               <Type className="h-4 w-4" />
               Active Fonts
+              {summary.activeCount > 0 && (
+                <span className="ml-1 text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5">
+                  {summary.activeCount}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="screenshots" className="flex items-center gap-2">
+              <Camera className="h-4 w-4" />
+              Screenshots
+              {inspection?.screenshots?.annotationCount && (
+                <span className="ml-1 text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5">
+                  {inspection.screenshots.annotationCount}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
-          {/* Summary Tab */}
-          <TabsContent value="summary">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
-                  Inspection Summary
-                </CardTitle>
-                <CardDescription>Overview of inspection results</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div className="flex flex-col items-center justify-center p-6 bg-slate-100 rounded-lg shadow-sm">
-                    <span className="text-4xl font-bold text-slate-800">{summary.totalFonts}</span>
-                    <span className="text-sm text-muted-foreground mt-2">Font Files Detected</span>
-                  </div>
-                  <div className="flex flex-col items-center justify-center p-6 bg-slate-100 rounded-lg shadow-sm">
-                    <span className="text-4xl font-bold text-slate-800">{summary.activeCount}</span>
-                    <span className="text-sm text-muted-foreground mt-2">Actively Used Fonts</span>
-                  </div>
-                </div>
-                
-                <div className="mt-8">
-                  <h3 className="text-lg font-medium mb-4 text-slate-700">Font Usage Breakdown</h3>
-                  <div className="border rounded-md shadow-sm overflow-hidden">
-                    <table className="w-full border-collapse">
-                      <thead>
-                        <tr className="font-semibold border-b bg-slate-50">
-                          <th className="p-4 text-left text-slate-700">Font Name</th>
-                          <th className="p-4 text-left text-slate-700">Usage Count</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {summary.allFonts.length > 0 ? (
-                          summary.allFonts.map((font: {name: string, count: number}, index: number) => (
-                            <tr key={index} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
-                              <td className="p-4 font-medium text-slate-800">{font.name}</td>
-                              <td className="p-4">
-                                <div className="flex items-center">
-                                  <span className="mr-2 font-medium tabular-nums">{font.count}</span>
-                                  <span className="text-xs text-muted-foreground">elements</span>
-                                  <div className="ml-3 bg-slate-200 h-2 rounded-full flex-grow">
-                                    <div 
-                                      className="bg-primary h-2 rounded-full" 
-                                      style={{ 
-                                        width: `${Math.max(5, Math.min(100, (font.count / Math.max(...summary.allFonts.map((f) => f.count))) * 100))}%` 
-                                      }} 
-                                    />
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={2} className="p-6 text-center text-gray-500">
-                              No active fonts detected
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* Screenshots Tab */}
+          <TabsContent value="screenshots">
+            <ScreenshotViewer 
+              inspectionId={inspection._id}
+              screenshots={inspection.screenshots}
+              url={inspection.url}
+            />
           </TabsContent>
 
           {/* Downloaded Fonts Tab */}

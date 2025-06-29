@@ -45,6 +45,18 @@ export interface ActiveFont {
   preview?: string;
 }
 
+// Type definitions for screenshots
+export interface ScreenshotData {
+  original: string;        // Local file path to original screenshot
+  annotated: string;       // Local file path to annotated screenshot
+  capturedAt: Timestamp | Date;  // When the screenshot was taken
+  dimensions?: {
+    width: number;
+    height: number;
+  };
+  annotationCount?: number; // Number of font annotations added
+}
+
 // Type definition for Inspection document
 export interface Inspection {
   id?: string;
@@ -59,6 +71,7 @@ export interface Inspection {
   updatedAt: Timestamp | Date;
   status?: 'completed' | 'failed';
   error?: string;
+  screenshots?: ScreenshotData; // Optional screenshot data
 }
 
 // Convert Firestore document to Inspection object
