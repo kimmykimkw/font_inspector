@@ -648,30 +648,87 @@ export default function ProjectResultsPage() {
                     </thead>
                     <tbody>
                       {allFonts.map((font, index) => {
-                        // Helper function to find font family from active fonts data
-                        const findFontFamilyFromActiveFont = (fontFile: any) => {
-                          if (!allActiveFonts?.length) {
-                            return 'Unknown';
+                        // Helper function to find font family using metadata-first approach
+                        const findFontFamilyFromMetadata = (fontFile: any) => {
+                          // PRIORITY 1: Use metadata font name (most accurate)
+                          if (fontFile.metadata?.fontName) {
+                            return fontFile.metadata.fontName;
                           }
                           
-                          // Try to match with active fonts from the same website
-                          const activeFont = allActiveFonts.find(af => 
-                            af.websiteUrl === fontFile.websiteUrl &&
-                            af.family &&
-                            (
-                              // Try matching font filename with family name
-                              fontFile.name.toLowerCase().includes(af.family.toLowerCase().replace(/["'\s]/g, '')) ||
-                              af.family.toLowerCase().replace(/["'\s]/g, '').includes(
-                                fontFile.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '').split(/[-_]/)[0]
-                              )
-                            )
-                          );
-                          
-                          if (activeFont) {
-                            return activeFont.family.replace(/["']/g, '').trim();
+                          // PRIORITY 2: Try to match with active fonts from the same website (most reliable)
+                          if (allActiveFonts?.length > 0) {
+                            const matchingActiveFont = allActiveFonts.find(activeFont => {
+                              // Only match fonts from the same website
+                              if (activeFont.websiteUrl !== fontFile.websiteUrl) {
+                                return false;
+                              }
+                              
+                              const activeFontName = activeFont.family.toLowerCase().replace(/["'\s]/g, '').trim();
+                              const fontFileName = fontFile.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
+                              
+                              // Multiple matching strategies
+                              const metadataMatch = fontFile.metadata?.fontName && 
+                                fontFile.metadata.fontName.toLowerCase().replace(/["'\s]/g, '').trim() === activeFontName;
+                              const directMatch = activeFontName === fontFileName;
+                              const filenameContainsFamily = fontFileName.includes(activeFontName);
+                              const familyContainsFilename = activeFontName.includes(fontFileName);
+                              const noHyphensMatch = fontFileName.replace(/[-_]/g, '').includes(activeFontName.replace(/[-_]/g, ''));
+                              const partialWordMatch = fontFileName.includes(activeFontName.split(' ')[0].toLowerCase());
+                              const filenameWordMatch = activeFontName.includes(fontFileName.split(/[-_]/)[0]);
+                              
+                              // Enhanced metadata matching
+                              const metadataWords = fontFile.metadata?.fontName ? 
+                                fontFile.metadata.fontName.toLowerCase().replace(/["'\s]/g, '').replace(/[^a-z]/g, '') : '';
+                              const activeFontWords = activeFontName.replace(/[-_]/g, '').replace(/[^a-z]/g, '');
+                              
+                              // Multiple strategies for metadata matching
+                              const metadataExactMatch = metadataWords === activeFontWords;
+                              const metadataContainsActive = metadataWords.includes(activeFontWords);
+                              const activeContainsMetadata = activeFontWords.includes(metadataWords);
+                              
+                              // Check for common word prefixes
+                              const findCommonPrefix = (str1: string, str2: string) => {
+                                let i = 0;
+                                while (i < str1.length && i < str2.length && str1[i] === str2[i]) {
+                                  i++;
+                                }
+                                return str1.substring(0, i);
+                              };
+                              
+                              const commonPrefix = findCommonPrefix(metadataWords, activeFontWords);
+                              const hasSignificantCommonPrefix = commonPrefix.length >= 8;
+                              
+                              // Split into words and check for overlap
+                              const metadataWordParts = fontFile.metadata?.fontName ? 
+                                fontFile.metadata.fontName.toLowerCase().split(/[\s-_]+/).filter((w: string) => w.length > 2) : [];
+                              const activeFontWordParts = activeFontName.split(/[\s-_]+/).filter((w: string) => w.length > 2);
+                              
+                              const hasCommonWords = metadataWordParts.some((metaPart: string) => 
+                                activeFontWordParts.some((activePart: string) => 
+                                  metaPart.includes(activePart) || activePart.includes(metaPart)
+                                )
+                              );
+                              
+                              const metadataPartialMatch = metadataExactMatch || metadataContainsActive || activeContainsMetadata || hasSignificantCommonPrefix || hasCommonWords;
+                              
+                              return (
+                                metadataMatch ||
+                                directMatch ||
+                                filenameContainsFamily ||
+                                familyContainsFilename ||
+                                noHyphensMatch ||
+                                partialWordMatch ||
+                                filenameWordMatch ||
+                                metadataPartialMatch
+                              );
+                            });
+                            
+                            if (matchingActiveFont) {
+                              return matchingActiveFont.family.replace(/["']/g, '').trim();
+                            }
                           }
                           
-                          // Fallback: extract basic name from filename
+                          // PRIORITY 3: Fallback to filename-based extraction
                           const basicName = fontFile.name
                             .replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '')
                             .replace(/[-_](Regular|Bold|Light|Medium|SemiBold|ExtraBold|Black|Thin|Italic|Oblique|Normal).*$/i, '')
@@ -683,7 +740,7 @@ export default function ProjectResultsPage() {
                           return basicName || 'Unknown';
                         };
 
-                        const fontFamily = findFontFamilyFromActiveFont(font);
+                        const fontFamily = findFontFamilyFromMetadata(font);
 
                         return (
                           <tr key={index} className="border-t hover:bg-slate-50">
