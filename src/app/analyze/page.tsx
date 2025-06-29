@@ -59,8 +59,8 @@ function AnalyzeContent() {
   }, [queue, projectUrls]);
 
   // Calculate real progress and completion stats
-  const { realProgress, completedWebsites, totalWebsites, hasFailures } = useMemo(() => {
-    if (!projectUrls.length) return { realProgress: 0, completedWebsites: 0, totalWebsites: 0, hasFailures: false };
+  const { realProgress, completedWebsites, totalWebsites, hasFailures, errorMessage } = useMemo(() => {
+    if (!projectUrls.length) return { realProgress: 0, completedWebsites: 0, totalWebsites: 0, hasFailures: false, errorMessage: undefined };
     
     const total = projectUrls.length;
     
@@ -77,6 +77,22 @@ function AnalyzeContent() {
     ).length;
     const successful = currentQueueItems.filter(item => item.status === 'completed').length;
     const failed = currentQueueItems.filter(item => item.status === 'failed').length;
+    const failedItems = currentQueueItems.filter(item => item.status === 'failed');
+    
+    // Extract error message from failed items
+    let extractedErrorMessage = undefined;
+    if (failed > 0) {
+      // For single URL failures, show the specific error
+      if (total === 1 && failedItems.length === 1) {
+        extractedErrorMessage = failedItems[0].error;
+      } else if (failed === total) {
+        // All failed - show the first error or a generic message
+        extractedErrorMessage = failedItems[0]?.error || 'All inspections failed';
+      } else {
+        // Some failed - show count of failures
+        extractedErrorMessage = `${failed} out of ${total} inspections failed`;
+      }
+    }
     
     let progress = 0;
     if (total > 0) {
@@ -100,14 +116,16 @@ function AnalyzeContent() {
       completed,
       successful,
       failed,
-      total
+      total,
+      errorMessage: extractedErrorMessage
     });
     
     return {
       realProgress: Math.min(progress, 100),
       completedWebsites: successful,
       totalWebsites: total, // Always use the original URL count
-      hasFailures: failed > 0
+      hasFailures: failed > 0,
+      errorMessage: extractedErrorMessage
     };
   }, [projectUrls, currentQueueItems, analysisState.status]);
 
@@ -268,6 +286,7 @@ function AnalyzeContent() {
       totalWebsites={isProject ? totalWebsites : undefined}
       completedWebsites={isProject ? completedWebsites : undefined}
       hasFailures={isProject ? hasFailures : undefined}
+      errorMessage={errorMessage}
     />
   );
 }

@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const validChannels = [
       'app:getVersion',
       'app:checkForUpdates',
+      'app:downloadUpdate',
+      'app:installUpdate',
+      'app:dismissUpdate',
       'app:quit',
       'window:minimize',
       'window:maximize',
@@ -60,7 +63,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   on: (channel: string, callback: (...args: any[]) => void) => {
     const validChannels = [
       'app:update-available',
-      'app:update-downloaded'
+      'app:update-not-available',
+      'app:update-downloaded',
+      'app:update-progress',
+      'app:update-error'
     ];
     
     if (validChannels.includes(channel)) {
@@ -74,13 +80,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAllListeners: (channel: string) => {
     const validChannels = [
       'app:update-available',
-      'app:update-downloaded'
+      'app:update-not-available',
+      'app:update-downloaded',
+      'app:update-progress',
+      'app:update-error'
     ];
     
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
-  }
+  },
+
+  // Update control methods
+  downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
+  installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+  dismissUpdate: () => ipcRenderer.invoke('app:dismissUpdate')
 });
 
 // Type declaration for TypeScript
@@ -99,6 +113,9 @@ declare global {
       send: (channel: string, ...args: any[]) => void;
       on: (channel: string, callback: (...args: any[]) => void) => void;
       removeAllListeners: (channel: string) => void;
+      downloadUpdate: () => Promise<void>;
+      installUpdate: () => Promise<void>;
+      dismissUpdate: () => Promise<void>;
     };
   }
 } 

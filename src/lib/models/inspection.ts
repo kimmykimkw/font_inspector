@@ -1,6 +1,24 @@
 import { db, collections } from '../firebase';
 import { Timestamp, DocumentReference } from 'firebase-admin/firestore';
 
+// Type definitions for font metadata
+export interface FontMetadata {
+  foundry: string | null;           // Font foundry (Monotype, Adobe, etc.)
+  copyright: string | null;         // Copyright notice
+  version: string | null;           // Font version
+  licenseInfo: string | null;       // License information
+  embeddingPermissions: {    // Font embedding rights
+    installable: boolean;
+    editable: boolean;
+    previewAndPrint: boolean;
+    restrictedLicense: boolean;
+  } | null;
+  uniqueIdentifier: string | null;  // Font unique ID
+  creationDate: string | null;      // Font creation date
+  designer: string | null;          // Font designer
+  fontName: string | null;          // Full font name
+}
+
 // Type definitions for downloaded fonts
 export interface DownloadedFont {
   name: string;
@@ -8,6 +26,7 @@ export interface DownloadedFont {
   size: number;
   url: string;
   source: string;
+  metadata: FontMetadata | null;    // Font metadata or null if not available
 }
 
 // Type definitions for font face declarations

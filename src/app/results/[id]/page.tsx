@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useInspection } from "@/contexts/InspectionContext";
 import { generateFontInspectionCSV, downloadCSV } from '@/lib/csv-utils';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { 
   BarChart3, 
   Download, 
@@ -23,8 +24,10 @@ import {
   FileDown, 
   FolderOpen,
   Search,
-  TrendingUp
+  TrendingUp,
+  Info
 } from "lucide-react";
+import { FontMetadata } from '@/lib/models/inspection';
 
 // Types for MongoDB inspection data
 interface InspectionData {
@@ -45,6 +48,7 @@ interface FontFile {
   size: number;
   url: string;
   source: string;
+  metadata: any | null;
 }
 
 interface ActiveFont {
@@ -145,6 +149,8 @@ export default function ResultsPage() {
   const [inspection, setInspection] = useState<InspectionData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [metadataModalOpen, setMetadataModalOpen] = useState(false);
+  const [selectedFontMetadata, setSelectedFontMetadata] = useState<any>(null);
   
   // Get inspection ID from params
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
@@ -242,6 +248,18 @@ export default function ResultsPage() {
     
     fetchInspectionData();
   }, [id, router, getInspectionById]);
+
+  // Debug inspection data for Active Fonts
+  useEffect(() => {
+    if (inspection) {
+      console.log('🔍 Active Fonts Debug:', {
+        activeFontsCount: inspection.activeFonts?.length || 0,
+        activeFonts: inspection.activeFonts?.map(f => f.family) || [],
+        downloadedFontsCount: inspection.downloadedFonts?.length || 0,
+        downloadedFonts: inspection.downloadedFonts?.map(f => f.name) || []
+      });
+    }
+  }, [inspection]);
 
   // Show loading state
   if (isLoading) {
@@ -479,6 +497,11 @@ export default function ResultsPage() {
     toast.success("Results exported successfully!");
   };
 
+  const handleViewMetadata = (font: FontFile) => {
+    setSelectedFontMetadata({ font, metadata: font.metadata });
+    setMetadataModalOpen(true);
+  };
+
   return (
     <div className="container mx-auto py-8 px-4 max-w-6xl">
       <div className="flex flex-col gap-6">
@@ -636,7 +659,7 @@ export default function ResultsPage() {
               </CardHeader>
               <CardContent>
                 <div className="border rounded-md overflow-x-auto shadow-sm">
-                  <ResizableTable columnCount={6} className="w-full">
+                  <ResizableTable columnCount={7} className="w-full">
                     <thead>
                       <tr className="bg-slate-50 border-b h-14">
                         <ResizableHeader index={0} className="font-semibold p-4 text-slate-700">Font Family</ResizableHeader>
@@ -644,15 +667,21 @@ export default function ResultsPage() {
                         <ResizableHeader index={2} className="font-semibold p-4 text-slate-700">Format</ResizableHeader>
                         <ResizableHeader index={3} className="font-semibold p-4 text-slate-700">Size</ResizableHeader>
                         <ResizableHeader index={4} className="font-semibold p-4 text-slate-700">Source</ResizableHeader>
-                        <ResizableHeader index={5} className="font-semibold p-4 text-slate-700">URL</ResizableHeader>
+                        <ResizableHeader index={5} className="font-semibold p-4 text-slate-700">Metadata</ResizableHeader>
+                        <ResizableHeader index={6} className="font-semibold p-4 text-slate-700">URL</ResizableHeader>
                       </tr>
                     </thead>
                     <tbody>
                       {inspection.downloadedFonts?.length > 0 ? (
                         inspection.downloadedFonts.map((font: FontFile, index: number) => {
                           // Helper function to find font family from CSS @font-face declarations
-                          const findFontFamilyFromCSS = (fontUrl: string) => {
-                            // First, try to match with active fonts (most reliable)
+                          const findFontFamilyFromCSS = (fontUrl: string, metadata?: FontMetadata | null) => {
+                            // PRIORITY 1: Use metadata font name (most accurate)
+                            if (metadata?.fontName) {
+                              return metadata.fontName;
+                            }
+                            
+                            // PRIORITY 2: Try to match with active fonts (most reliable)
                             if (inspection.activeFonts?.length > 0) {
                               // Extract basic name from filename for matching
                               const basicName = font.name
@@ -668,18 +697,98 @@ export default function ResultsPage() {
                                 const activeFontName = activeFont.family.toLowerCase().replace(/["'\s]/g, '').trim();
                                 const fontFileName = font.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
                                 
+                                console.log(`🎯 Comparing "${activeFontName}" with "${fontFileName}"`);
+                                console.log(`🎯 Full font file name: "${font.name}"`);
+                                console.log(`🎯 Font file URL: "${font.url}"`);
+                                console.log(`🎯 Font metadata name: "${font.metadata?.fontName || 'none'}"`);
+                                
                                 // Multiple matching strategies
+                                const metadataMatch = font.metadata?.fontName && 
+                                  font.metadata.fontName.toLowerCase().replace(/["'\s]/g, '').trim() === activeFontName;
+                                const directMatch = activeFontName === fontFileName;
+                                const filenameContainsFamily = fontFileName.includes(activeFontName);
+                                const familyContainsFilename = activeFontName.includes(fontFileName);
+                                const noHyphensMatch = fontFileName.replace(/[-_]/g, '').includes(activeFontName.replace(/[-_]/g, ''));
+                                const partialWordMatch = fontFileName.includes(activeFontName.split(' ')[0].toLowerCase());
+                                const filenameWordMatch = activeFontName.includes(fontFileName.split(/[-_]/)[0]);
+                                
+                                // Enhanced metadata matching for "Aktiv Grotesk" case
+                                const metadataWords = font.metadata?.fontName ? 
+                                  font.metadata.fontName.toLowerCase().replace(/["'\s]/g, '').replace(/[^a-z]/g, '') : '';
+                                const activeFontWords = activeFontName.replace(/[-_]/g, '').replace(/[^a-z]/g, '');
+                                
+                                // Multiple strategies for metadata matching
+                                const metadataExactMatch = metadataWords === activeFontWords;
+                                const metadataContainsActive = metadataWords.includes(activeFontWords);
+                                const activeContainsMetadata = activeFontWords.includes(metadataWords);
+                                
+                                // New: Check for common word prefixes (like "aktivgrotesk")
+                                const findCommonPrefix = (str1: string, str2: string) => {
+                                  let i = 0;
+                                  while (i < str1.length && i < str2.length && str1[i] === str2[i]) {
+                                    i++;
+                                  }
+                                  return str1.substring(0, i);
+                                };
+                                
+                                const commonPrefix = findCommonPrefix(metadataWords, activeFontWords);
+                                const hasSignificantCommonPrefix = commonPrefix.length >= 8; // At least 8 characters in common
+                                
+                                // Alternative: Split into words and check for overlap
+                                const metadataWordParts = font.metadata?.fontName ? 
+                                  font.metadata.fontName.toLowerCase().split(/[\s-_]+/).filter((w: string) => w.length > 2) : [];
+                                const activeFontWordParts = activeFontName.split(/[\s-_]+/).filter((w: string) => w.length > 2);
+                                
+                                const hasCommonWords = metadataWordParts.some((metaPart: string) => 
+                                  activeFontWordParts.some((activePart: string) => 
+                                    metaPart.includes(activePart) || activePart.includes(metaPart)
+                                  )
+                                );
+                                
+                                const metadataPartialMatch = metadataExactMatch || metadataContainsActive || activeContainsMetadata || hasSignificantCommonPrefix || hasCommonWords;
+                                
+                                console.log(`🎯 Match results:`, JSON.stringify({
+                                  metadataMatch: metadataMatch,
+                                  directMatch: directMatch,
+                                  filenameContainsFamily: filenameContainsFamily,
+                                  familyContainsFilename: familyContainsFilename,
+                                  noHyphensMatch: noHyphensMatch,
+                                  partialWordMatch: partialWordMatch,
+                                  filenameWordMatch: filenameWordMatch,
+                                  metadataPartialMatch: metadataPartialMatch,
+                                  metadataWords: metadataWords,
+                                  activeFontWords: activeFontWords,
+                                  // New detailed metadata matching
+                                  metadataExactMatch: metadataExactMatch,
+                                  metadataContainsActive: metadataContainsActive,
+                                  activeContainsMetadata: activeContainsMetadata,
+                                  commonPrefix: commonPrefix,
+                                  hasSignificantCommonPrefix: hasSignificantCommonPrefix,
+                                  metadataWordParts: metadataWordParts,
+                                  activeFontWordParts: activeFontWordParts,
+                                  hasCommonWords: hasCommonWords
+                                }, null, 2));
+                                
+                                // Special debugging for the Aktiv Grotesk case
+                                if (font.metadata?.fontName?.includes('Aktiv') || activeFontName.includes('aktiv')) {
+                                  console.log(`🚨 AKTIV GROTESK SPECIAL DEBUG:`, {
+                                    activeFont: activeFontName,
+                                    metadataName: font.metadata?.fontName,
+                                    metadataWords: metadataWords,
+                                    activeFontWords: activeFontWords,
+                                    shouldMatch: metadataPartialMatch
+                                  });
+                                }
+                                
                                 return (
-                                  // Direct match
-                                  activeFontName === basicName ||
-                                  // Font name contains family name
-                                  fontFileName.includes(activeFontName) ||
-                                  // Family name contains extracted name
-                                  activeFontName.includes(basicName) ||
-                                  // Partial word matching
-                                  basicName.includes(activeFontName) ||
-                                  // Match without hyphens/underscores
-                                  fontFileName.replace(/[-_]/g, '').includes(activeFontName.replace(/[-_]/g, ''))
+                                  metadataMatch ||
+                                  directMatch ||
+                                  filenameContainsFamily ||
+                                  familyContainsFilename ||
+                                  noHyphensMatch ||
+                                  partialWordMatch ||
+                                  filenameWordMatch ||
+                                  metadataPartialMatch
                                 );
                               });
                               
@@ -688,7 +797,7 @@ export default function ResultsPage() {
                               }
                             }
                             
-                            // Second, try CSS @font-face declarations
+                            // PRIORITY 3: Try CSS @font-face declarations
                             if (inspection.fontFaceDeclarations?.length > 0) {
                               for (const declaration of inspection.fontFaceDeclarations) {
                                 if (declaration.source && declaration.family) {
@@ -716,7 +825,7 @@ export default function ResultsPage() {
                               }
                             }
                             
-                            // Final fallback: extract from filename with better logic
+                            // PRIORITY 4: Final fallback - extract from filename with better logic
                             const cleanName = font.name
                               .replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '') // Remove extension
                               .replace(/[-_](Regular|Bold|Light|Medium|SemiBold|ExtraBold|Black|Thin|Italic|Oblique|Normal).*$/i, '') // Remove weight/style
@@ -728,7 +837,7 @@ export default function ResultsPage() {
                             return cleanName || 'Unknown';
                           };
 
-                          const fontFamily = findFontFamilyFromCSS(font.url);
+                          const fontFamily = findFontFamilyFromCSS(font.url, font.metadata);
 
                           return (
                             <tr key={index} className="border-b last:border-0 hover:bg-slate-50 transition-colors h-14">
@@ -751,7 +860,22 @@ export default function ResultsPage() {
                                   {font.source || 'Unknown'}
                                 </span>
                               </ResizableCell>
-                              <ResizableCell index={5} className="p-4 text-xs">
+                              <ResizableCell index={5} className="p-4">
+                                {font.metadata ? (
+                                  <button
+                                    onClick={() => handleViewMetadata(font)}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 hover:bg-green-200 transition-colors cursor-pointer"
+                                  >
+                                    <Info className="h-3 w-3 mr-1" />
+                                    Available
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
+                                    Not Extracted
+                                  </span>
+                                )}
+                              </ResizableCell>
+                              <ResizableCell index={6} className="p-4 text-xs">
                                 <a 
                                   href={font.url} 
                                   className="text-blue-600 hover:text-blue-800 hover:underline truncate inline-block max-w-full" 
@@ -767,7 +891,7 @@ export default function ResultsPage() {
                         })
                       ) : (
                         <tr className="h-14">
-                          <td colSpan={6} className="p-6 text-center text-gray-500">
+                          <td colSpan={7} className="p-6 text-center text-gray-500">
                             No downloaded fonts detected
                           </td>
                         </tr>
@@ -797,11 +921,180 @@ export default function ResultsPage() {
                       const totalCount = inspection.activeFonts.reduce((sum, f) => sum + (f.elementCount || f.count || f.elements || 0), 0);
                       const percentage = totalCount > 0 ? (elementCount / totalCount) * 100 : 0;
                       
+                      // Helper function to find matching downloaded font file
+                      const findMatchingFontFile = (activeFont: ActiveFont) => {
+                        console.log('🔍 Debugging font matching for:', activeFont.family);
+                        console.log('📁 Available downloaded fonts:', inspection.downloadedFonts?.length || 0);
+                        console.log('📁 Downloaded fonts list:', inspection.downloadedFonts?.map(f => f.name) || []);
+                        
+                        if (!inspection.downloadedFonts?.length) {
+                          console.log('❌ No downloaded fonts available');
+                          return null;
+                        }
+                        
+                        // Try to find a downloaded font that matches this active font
+                        const matchingFont = inspection.downloadedFonts.find((downloadedFont: FontFile) => {
+                          const activeFontName = activeFont.family.toLowerCase().replace(/["'\s]/g, '').trim();
+                          
+                          // Enhanced filename extraction
+                          let fontFileName = '';
+                          
+                          // Try to extract filename from URL if name is not a proper filename
+                          if (downloadedFont.name && downloadedFont.name.length > 5) {
+                            // Use the name as-is if it looks like a proper filename
+                            fontFileName = downloadedFont.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
+                          } else if (downloadedFont.url) {
+                            // Extract filename from URL
+                            const urlParts = downloadedFont.url.split('/');
+                            const filename = urlParts[urlParts.length - 1] || '';
+                            fontFileName = filename.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
+                          } else {
+                            fontFileName = downloadedFont.name || '';
+                          }
+                          
+                          console.log(`🔧 Font processing:`, JSON.stringify({
+                            originalName: downloadedFont.name,
+                            url: downloadedFont.url,
+                            extractedFileName: fontFileName,
+                            nameLength: downloadedFont.name?.length || 0
+                          }, null, 2));
+                          
+                          console.log(`🎯 Comparing "${activeFontName}" with "${fontFileName}"`);
+                          console.log(`🎯 Full font file name: "${downloadedFont.name}"`);
+                          console.log(`🎯 Font file URL: "${downloadedFont.url}"`);
+                          console.log(`🎯 Font metadata name: "${downloadedFont.metadata?.fontName || 'none'}"`);
+                          
+                          // Multiple matching strategies
+                          const metadataMatch = downloadedFont.metadata?.fontName && 
+                            downloadedFont.metadata.fontName.toLowerCase().replace(/["'\s]/g, '').trim() === activeFontName;
+                          const directMatch = activeFontName === fontFileName;
+                          const filenameContainsFamily = fontFileName.includes(activeFontName);
+                          const familyContainsFilename = activeFontName.includes(fontFileName);
+                          const noHyphensMatch = fontFileName.replace(/[-_]/g, '').includes(activeFontName.replace(/[-_]/g, ''));
+                          const partialWordMatch = fontFileName.includes(activeFontName.split(' ')[0].toLowerCase());
+                          const filenameWordMatch = activeFontName.includes(fontFileName.split(/[-_]/)[0]);
+                          
+                          // Enhanced metadata matching for "Aktiv Grotesk" case
+                          const metadataWords = downloadedFont.metadata?.fontName ? 
+                            downloadedFont.metadata.fontName.toLowerCase().replace(/["'\s]/g, '').replace(/[^a-z]/g, '') : '';
+                          const activeFontWords = activeFontName.replace(/[-_]/g, '').replace(/[^a-z]/g, '');
+                          
+                          // Multiple strategies for metadata matching
+                          const metadataExactMatch = metadataWords === activeFontWords;
+                          const metadataContainsActive = metadataWords.includes(activeFontWords);
+                          const activeContainsMetadata = activeFontWords.includes(metadataWords);
+                          
+                          // New: Check for common word prefixes (like "aktivgrotesk")
+                          const findCommonPrefix = (str1: string, str2: string) => {
+                            let i = 0;
+                            while (i < str1.length && i < str2.length && str1[i] === str2[i]) {
+                              i++;
+                            }
+                            return str1.substring(0, i);
+                          };
+                          
+                          const commonPrefix = findCommonPrefix(metadataWords, activeFontWords);
+                          const hasSignificantCommonPrefix = commonPrefix.length >= 8; // At least 8 characters in common
+                          
+                          // Alternative: Split into words and check for overlap
+                          const metadataWordParts = downloadedFont.metadata?.fontName ? 
+                            downloadedFont.metadata.fontName.toLowerCase().split(/[\s-_]+/).filter((w: string) => w.length > 2) : [];
+                          const activeFontWordParts = activeFontName.split(/[\s-_]+/).filter((w: string) => w.length > 2);
+                          
+                          const hasCommonWords = metadataWordParts.some((metaPart: string) => 
+                            activeFontWordParts.some((activePart: string) => 
+                              metaPart.includes(activePart) || activePart.includes(metaPart)
+                            )
+                          );
+                          
+                          const metadataPartialMatch = metadataExactMatch || metadataContainsActive || activeContainsMetadata || hasSignificantCommonPrefix || hasCommonWords;
+                          
+                          console.log(`🎯 Match results:`, JSON.stringify({
+                            metadataMatch: metadataMatch,
+                            directMatch: directMatch,
+                            filenameContainsFamily: filenameContainsFamily,
+                            familyContainsFilename: familyContainsFilename,
+                            noHyphensMatch: noHyphensMatch,
+                            partialWordMatch: partialWordMatch,
+                            filenameWordMatch: filenameWordMatch,
+                            metadataPartialMatch: metadataPartialMatch,
+                            metadataWords: metadataWords,
+                            activeFontWords: activeFontWords,
+                            // New detailed metadata matching
+                            metadataExactMatch: metadataExactMatch,
+                            metadataContainsActive: metadataContainsActive,
+                            activeContainsMetadata: activeContainsMetadata,
+                            commonPrefix: commonPrefix,
+                            hasSignificantCommonPrefix: hasSignificantCommonPrefix,
+                            metadataWordParts: metadataWordParts,
+                            activeFontWordParts: activeFontWordParts,
+                            hasCommonWords: hasCommonWords
+                          }, null, 2));
+                          
+                          // Special debugging for the Aktiv Grotesk case
+                          if (downloadedFont.metadata?.fontName?.includes('Aktiv') || activeFontName.includes('aktiv')) {
+                            console.log(`🚨 AKTIV GROTESK SPECIAL DEBUG:`, {
+                              activeFont: activeFontName,
+                              metadataName: downloadedFont.metadata?.fontName,
+                              metadataWords: metadataWords,
+                              activeFontWords: activeFontWords,
+                              shouldMatch: metadataPartialMatch
+                            });
+                          }
+                          
+                          return (
+                            metadataMatch ||
+                            directMatch ||
+                            filenameContainsFamily ||
+                            familyContainsFilename ||
+                            noHyphensMatch ||
+                            partialWordMatch ||
+                            filenameWordMatch ||
+                            metadataPartialMatch
+                          );
+                        });
+                        
+                        console.log('✅ Found matching font:', matchingFont?.name || 'none');
+                        return matchingFont;
+                      };
+                      
+                      const matchingFontFile = findMatchingFontFile(font);
+                      
+                      // Helper function to get full system font names
+                      const getFullSystemFontName = (fontFamily: string) => {
+                        const systemFontMap: Record<string, string> = {
+                          'Times': 'Times New Roman',
+                          'times': 'Times New Roman',
+                          'Helvetica': 'Helvetica',
+                          'Arial': 'Arial',
+                          'Courier': 'Courier New',
+                          'courier': 'Courier New',
+                          'Georgia': 'Georgia',
+                          'Verdana': 'Verdana',
+                          'Tahoma': 'Tahoma',
+                          'Impact': 'Impact',
+                          'Comic Sans MS': 'Comic Sans MS',
+                          'Trebuchet MS': 'Trebuchet MS'
+                        };
+                        
+                        return systemFontMap[fontFamily] || fontFamily;
+                      };
+                      
+                      const fullSystemFontName = getFullSystemFontName(font.family);
+                      
                       return (
                         <div key={index} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border hover:bg-slate-100 transition-colors">
                           <div className="flex items-center space-x-3">
                             <div className="w-2 h-2 bg-primary rounded-full"></div>
-                            <h3 className="text-lg font-semibold text-slate-800">{font.family}</h3>
+                            <div className="flex flex-col">
+                              <h3 className="text-lg font-semibold text-slate-800">{font.family}</h3>
+                              {matchingFontFile && (
+                                <p className="text-sm text-slate-600 font-mono">{matchingFontFile.name}</p>
+                              )}
+                              {!matchingFontFile && (
+                                <p className="text-sm text-slate-500 italic">System font - {fullSystemFontName}</p>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center space-x-4">
                             <div className="flex items-center space-x-2">
@@ -859,6 +1152,128 @@ export default function ResultsPage() {
           </AlertDialogContent>
         </AlertDialog>
       )}
+
+      {/* Font Metadata Modal */}
+      <Dialog open={metadataModalOpen} onOpenChange={setMetadataModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Info className="h-5 w-5" />
+              Font Metadata Details
+            </DialogTitle>
+            <DialogDescription>
+              Detailed metadata information for {selectedFontMetadata?.font?.name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedFontMetadata?.metadata && (
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Font Name</label>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                    {selectedFontMetadata.metadata.fontName || 'Not available'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Foundry</label>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                    {selectedFontMetadata.metadata.foundry || 'Not available'}
+                  </p>
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium text-gray-700">Copyright</label>
+                <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                  {selectedFontMetadata.metadata.copyright || 'Not available'}
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Version</label>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                    {selectedFontMetadata.metadata.version || 'Not available'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Designer</label>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                    {selectedFontMetadata.metadata.designer || 'Not available'}
+                  </p>
+                </div>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium text-gray-700">License Information</label>
+                <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                  {selectedFontMetadata.metadata.licenseInfo || 'Not available'}
+                </p>
+              </div>
+              
+              {selectedFontMetadata.metadata.embeddingPermissions && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Embedding Permissions</label>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <div className={`p-2 rounded text-xs font-medium ${
+                      selectedFontMetadata.metadata.embeddingPermissions.installable 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      Installable: {selectedFontMetadata.metadata.embeddingPermissions.installable ? 'Yes' : 'No'}
+                    </div>
+                    <div className={`p-2 rounded text-xs font-medium ${
+                      selectedFontMetadata.metadata.embeddingPermissions.editable 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      Editable: {selectedFontMetadata.metadata.embeddingPermissions.editable ? 'Yes' : 'No'}
+                    </div>
+                    <div className={`p-2 rounded text-xs font-medium ${
+                      selectedFontMetadata.metadata.embeddingPermissions.previewAndPrint 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      Preview & Print: {selectedFontMetadata.metadata.embeddingPermissions.previewAndPrint ? 'Yes' : 'No'}
+                    </div>
+                    <div className={`p-2 rounded text-xs font-medium ${
+                      selectedFontMetadata.metadata.embeddingPermissions.restrictedLicense 
+                        ? 'bg-red-100 text-red-800' 
+                        : 'bg-green-100 text-green-800'
+                    }`}>
+                      Restricted: {selectedFontMetadata.metadata.embeddingPermissions.restrictedLicense ? 'Yes' : 'No'}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Unique Identifier</label>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border font-mono">
+                    {selectedFontMetadata.metadata.uniqueIdentifier || 'Not available'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700">Creation Date</label>
+                  <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                    {selectedFontMetadata.metadata.creationDate 
+                      ? new Date(selectedFontMetadata.metadata.creationDate).toLocaleDateString()
+                      : 'Not available'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div className="flex justify-end pt-4">
+            <Button variant="outline" onClick={() => setMetadataModalOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

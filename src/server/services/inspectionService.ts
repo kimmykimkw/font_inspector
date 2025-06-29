@@ -1,4 +1,23 @@
 import puppeteer, { Browser, Page } from 'puppeteer-core';
+import { extractFontMetadata, isLikelyParseable, getMetadataSummary } from '../../lib/font-metadata-extractor';
+
+// Interfaces for font metadata
+export interface FontMetadata {
+  foundry: string | null;           // Font foundry (Monotype, Adobe, etc.)
+  copyright: string | null;         // Copyright notice
+  version: string | null;           // Font version
+  licenseInfo: string | null;       // License information
+  embeddingPermissions: {    // Font embedding rights
+    installable: boolean;
+    editable: boolean;
+    previewAndPrint: boolean;
+    restrictedLicense: boolean;
+  } | null;
+  uniqueIdentifier: string | null;  // Font unique ID
+  creationDate: string | null;      // Font creation date
+  designer: string | null;          // Font designer
+  fontName: string | null;          // Full font name
+}
 
 // Interfaces for font inspection results
 export interface FontFile {
@@ -8,6 +27,7 @@ export interface FontFile {
   url: string;
   source: string; // CDN, Google Fonts, etc.
   websiteUrl?: string; // The website URL this font was found on
+  metadata: FontMetadata | null; // Font metadata or null if not available
 }
 
 export interface FontFaceDeclaration {
@@ -269,6 +289,25 @@ async function setupRequestInterception(page: Page, downloadedFonts: FontFile[])
             source = 'CDN';
           }
           
+          // Extract font metadata
+          let metadata: FontMetadata | null = null;
+          try {
+            // Convert Buffer to ArrayBuffer for font parsing
+            const arrayBuffer = new ArrayBuffer(buffer.length);
+            const uint8Array = new Uint8Array(arrayBuffer);
+            uint8Array.set(buffer);
+            
+            // Attempt metadata extraction for all fonts
+            console.log(`Extracting metadata for font: ${fileName} from ${url}`);
+            metadata = await extractFontMetadata(arrayBuffer, url);
+            console.log(`Metadata extracted successfully: ${getMetadataSummary(metadata)}`);
+          } catch (metadataError) {
+            console.warn(`Could not extract metadata for font ${fileName} at ${url}:`, 
+              metadataError instanceof Error ? metadataError.message : 'Unknown error');
+            // Continue without metadata - don't fail the entire inspection
+            metadata = null;
+          }
+          
           // Add URL to processed set
           processedFontUrls.add(url);
           
@@ -277,10 +316,12 @@ async function setupRequestInterception(page: Page, downloadedFonts: FontFile[])
             format,
             size,
             url,
-            source
+            source,
+            metadata
           });
           
-          console.log(`Font detected: ${fileName} (${format}, ${size} bytes) from ${source}`);
+          const metadataInfo = metadata ? ` | Metadata: ${getMetadataSummary(metadata)}` : '';
+          console.log(`Font detected: ${fileName} (${format}, ${size} bytes) from ${source}${metadataInfo}`);
         } catch (error) {
           console.error('Error processing font response:', error);
         }

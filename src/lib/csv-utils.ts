@@ -6,12 +6,31 @@ export interface FontFaceDeclaration {
   style?: string;
 }
 
+// Font metadata interface
+export interface FontMetadata {
+  foundry: string | null;           // Font foundry (Monotype, Adobe, etc.)
+  copyright: string | null;         // Copyright notice
+  version: string | null;           // Font version
+  licenseInfo: string | null;       // License information
+  embeddingPermissions: {    // Font embedding rights
+    installable: boolean;
+    editable: boolean;
+    previewAndPrint: boolean;
+    restrictedLicense: boolean;
+  } | null;
+  uniqueIdentifier: string | null;  // Font unique ID
+  creationDate: string | null;      // Font creation date
+  designer: string | null;          // Font designer
+  fontName: string | null;          // Full font name
+}
+
 export interface FontFile {
   name: string;
   format: string;
   size: number;
   url: string;
   source: string;
+  metadata: FontMetadata | null;    // Font metadata or null if not available
 }
 
 export interface ActiveFont {
@@ -21,26 +40,34 @@ export interface ActiveFont {
   preview?: string;
 }
 
-// Enhanced font family detection with comprehensive debugging
+// Enhanced font family detection with metadata priority and comprehensive debugging
 export function findFontFamilyFromCSS(
   fontUrl: string, 
   fontFaceDeclarations: FontFaceDeclaration[],
+  metadata?: FontMetadata | null,
   debugContext: string = 'CSV Export'
 ): string {
   // Debug logging
   console.log(`${debugContext}: Processing font URL:`, fontUrl);
+  console.log(`${debugContext}: Has metadata:`, !!metadata);
   console.log(`${debugContext}: Available @font-face declarations:`, fontFaceDeclarations?.length || 0);
+  
+  // PRIORITY 1: Use metadata font name (most accurate)
+  if (metadata?.fontName) {
+    console.log(`${debugContext}: ✅ Using metadata font name: "${metadata.fontName}"`);
+    return metadata.fontName;
+  }
   
   if (!fontFaceDeclarations?.length) {
     console.warn(`${debugContext}: No @font-face declarations available - this indicates a data retrieval issue`);
-    return 'Unknown';
+    return extractFallbackNameFromUrl(fontUrl, debugContext);
   }
 
   // Log all available font families for debugging
   const availableFamilies = fontFaceDeclarations.map(d => d.family).filter(Boolean);
   console.log(`${debugContext}: Available font families:`, availableFamilies);
 
-  // Try to match the font URL with @font-face declarations
+  // PRIORITY 2: Try to match the font URL with @font-face declarations
   for (let i = 0; i < fontFaceDeclarations.length; i++) {
     const declaration = fontFaceDeclarations[i];
     console.log(`${debugContext}: Checking declaration ${i + 1}:`, {
@@ -80,7 +107,12 @@ export function findFontFamilyFromCSS(
 
   console.warn(`${debugContext}: ❌ No font family match found for URL: ${fontUrl} - using fallback`);
   
-  // Enhanced fallback: try to extract meaningful name from filename
+  // PRIORITY 3: Enhanced fallback from filename
+  return extractFallbackNameFromUrl(fontUrl, debugContext);
+}
+
+// Helper function to extract fallback name from URL
+function extractFallbackNameFromUrl(fontUrl: string, debugContext: string): string {
   const fileName = fontUrl.split('/').pop()?.split('?')[0] || '';
   const cleanName = fileName
     .replace(/\.(woff2?|ttf|otf|eot)$/i, '')
@@ -120,8 +152,8 @@ export function generateFontInspectionCSV(
   // Prepare CSV data
   let csvContent = "data:text/csv;charset=utf-8,";
   
-  // Headers for downloadedFonts
-  csvContent += "Font Family,Font Name,Format,Size (KB),URL,Source\n";
+  // Headers for downloadedFonts with metadata
+  csvContent += "Font Family,Font Name,Format,Size (KB),URL,Source,Foundry,Copyright,Version,License Info,Embedding Permissions,Designer,Creation Date\n";
   
   // Add downloaded fonts data
   if (downloadedFonts?.length) {
@@ -131,8 +163,19 @@ export function generateFontInspectionCSV(
       const fontFamily = findFontFamilyFromCSS(
         font.url, 
         fontFaceDeclarations || [], 
+        font.metadata,
         `${debugContext} Font ${index + 1}`
       );
+      
+      // Extract metadata fields
+      const metadata = font.metadata;
+      const embeddingPerms = metadata?.embeddingPermissions ? 
+        [
+          metadata.embeddingPermissions.installable ? 'Installable' : '',
+          metadata.embeddingPermissions.editable ? 'Editable' : '',
+          metadata.embeddingPermissions.previewAndPrint ? 'Preview&Print' : '',
+          metadata.embeddingPermissions.restrictedLicense ? 'Restricted' : ''
+        ].filter(Boolean).join(' | ') : '';
       
       const row = [
         fontFamily,
@@ -140,7 +183,14 @@ export function generateFontInspectionCSV(
         font.format || 'Unknown',
         (font.size / 1024).toFixed(2) || '0',
         font.url || '',
-        font.source || 'Unknown'
+        font.source || 'Unknown',
+        metadata?.foundry || '',
+        metadata?.copyright || '',
+        metadata?.version || '',
+        metadata?.licenseInfo || '',
+        embeddingPerms,
+        metadata?.designer || '',
+        metadata?.creationDate || ''
       ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
       
       csvContent += row + "\n";

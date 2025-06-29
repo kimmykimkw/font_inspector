@@ -8,6 +8,7 @@ import {
   InvitationRequest,
   AdminPermissions 
 } from './admin';
+import { getDefaultUserPermissions } from './settings-service';
 
 // ===== USER INVITATION FUNCTIONS =====
 
@@ -115,13 +116,16 @@ export const approveUserInvitation = async (
         approvalNotes: approvalNotes || ''
       });
 
-      // Create user permissions with default settings
+      // Get current default permissions from settings
+      const defaultPermissions = await getDefaultUserPermissions();
+      
+      // Create user permissions with current default settings
       const userPermissionsRef = collections.user_permissions.doc();
       transaction.set(userPermissionsRef, {
         userId: invitation.email, // We'll update this when user actually signs up
-        canUseApp: true,
-        maxInspectionsPerMonth: 1000, // Default limit
-        maxProjectsPerMonth: 300, // Default limit
+        canUseApp: defaultPermissions.canUseApp,
+        maxInspectionsPerMonth: defaultPermissions.maxInspectionsPerMonth,
+        maxProjectsPerMonth: defaultPermissions.maxProjectsPerMonth,
         updatedAt: Timestamp.now(),
         updatedBy: adminUserId
       });

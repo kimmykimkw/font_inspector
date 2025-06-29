@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { InspectionProvider } from "@/contexts/InspectionContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { PermissionManager } from "@/components/PermissionManager";
+import { UpdateManager } from "@/components/UpdateManager";
 import { StagewiseToolbar } from "@stagewise/toolbar-next";
 import { ReactPlugin } from "@stagewise-plugins/react";
 
@@ -43,6 +44,7 @@ export default function RootLayout({
                 {children}
               </main>
               <Footer />
+              <UpdateManager />
               <Toaster />
               <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
             </PermissionManager>

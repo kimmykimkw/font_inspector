@@ -1,5 +1,6 @@
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { firestoreDb } from './firebase-client';
+import { getDefaultUserPermissions } from './models/settings-service';
 
 interface UserPermissions {
   canUseApp: boolean;
@@ -21,11 +22,19 @@ interface LimitCheckResult {
   limit?: number;
 }
 
-// Default permissions for users who don't have explicit permissions set
-const DEFAULT_PERMISSIONS: UserPermissions = {
-  canUseApp: true,
-  maxInspectionsPerMonth: 1000,
-  maxProjectsPerMonth: 300
+// Get dynamic default permissions from settings
+const getDefaultPermissions = async (): Promise<UserPermissions> => {
+  try {
+    return await getDefaultUserPermissions();
+  } catch (error) {
+    console.error('Error getting default permissions from settings, using fallback:', error);
+    // Fallback to hardcoded defaults if settings service fails
+    return {
+      canUseApp: true,
+      maxInspectionsPerMonth: 1000,
+      maxProjectsPerMonth: 300
+    };
+  }
 };
 
 // Get user permissions by querying the userId field
@@ -63,8 +72,8 @@ export const checkInspectionLimit = async (userId: string, userEmail: string): P
     // Get user permissions
     const permissions = await getUserPermissions(userId, userEmail);
     
-    // If no permissions found, use default permissions
-    const userPermissions = permissions || DEFAULT_PERMISSIONS;
+    // If no permissions found, use dynamic default permissions
+    const userPermissions = permissions || await getDefaultPermissions();
 
     // Check if user can use the app
     if (!userPermissions.canUseApp) {
@@ -129,8 +138,8 @@ export const checkProjectLimit = async (userId: string, userEmail: string): Prom
     // Get user permissions
     const permissions = await getUserPermissions(userId, userEmail);
     
-    // If no permissions found, use default permissions
-    const userPermissions = permissions || DEFAULT_PERMISSIONS;
+    // If no permissions found, use dynamic default permissions
+    const userPermissions = permissions || await getDefaultPermissions();
 
     // Check if user can use the app
     if (!userPermissions.canUseApp) {

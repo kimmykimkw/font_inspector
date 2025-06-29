@@ -79,6 +79,7 @@ class ElectronApp {
   private expressServer: ChildProcess | null = null;
   private actualServerPort: number = Number(port); // Store the actual port the server starts on
   private isCheckingForUpdates: boolean = false; // Track update check state
+  private isManualUpdateCheck: boolean = false; // Track if update check was manual
 
   constructor() {
     // Make sure app is ready before creating windows
@@ -543,6 +544,32 @@ class ElectronApp {
     ipcMain.handle('app:getVersion', () => {
       return app.getVersion();
     });
+
+    // Update control handlers
+    ipcMain.handle('app:downloadUpdate', async () => {
+      try {
+        await autoUpdater.downloadUpdate();
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to download update:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    });
+
+    ipcMain.handle('app:installUpdate', async () => {
+      try {
+        autoUpdater.quitAndInstall();
+        return { success: true };
+      } catch (error) {
+        console.error('Failed to install update:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    });
+
+    ipcMain.handle('app:dismissUpdate', async () => {
+      // Just acknowledge the dismissal
+      return { success: true };
+    });
   }
 
   private initializeAutoUpdater(): void {
@@ -576,136 +603,90 @@ class ElectronApp {
     }
 
     if (this.isCheckingForUpdates) {
-      // Show dialog if already checking
-      await dialog.showMessageBox(this.mainWindow!, {
-        type: 'info',
-        title: 'Already Checking',
-        message: 'Already checking for updates. Please wait...',
-        buttons: ['OK']
-      });
+      console.log('Update check already in progress');
       return;
     }
 
     this.isCheckingForUpdates = true;
+    this.isManualUpdateCheck = true; // Flag this as a manual check
     
     try {
-      // Set up one-time event listeners for this manual check
-      const updateCheckPromise = new Promise<void>((resolve, reject) => {
-        const onUpdateAvailable = async (info: any) => {
-          this.cleanupManualUpdateListeners();
-          await dialog.showMessageBox(this.mainWindow!, {
-            type: 'info',
-            title: 'Update Available',
-            message: `A new version (${info.version}) is available and will be downloaded in the background.`,
-            detail: 'You will be notified when the update is ready to install.',
-            buttons: ['OK']
-          });
-          resolve();
-        };
-
-        const onUpdateNotAvailable = async () => {
-          this.cleanupManualUpdateListeners();
-          await dialog.showMessageBox(this.mainWindow!, {
-            type: 'info',
-            title: 'No Updates Available',
-            message: 'Font Inspector is up to date!',
-            detail: `You are running the latest version (${app.getVersion()}).`,
-            buttons: ['OK']
-          });
-          resolve();
-        };
-
-        const onUpdateError = async (error: Error) => {
-          this.cleanupManualUpdateListeners();
-          await dialog.showMessageBox(this.mainWindow!, {
-            type: 'error',
-            title: 'Update Check Failed',
-            message: 'Failed to check for updates.',
-            detail: error.message,
-            buttons: ['OK']
-          });
-          reject(new Error(`Update check failed: ${error.message}`));
-        };
-
-        // Add temporary event listeners
-        autoUpdater.once('update-available', onUpdateAvailable);
-        autoUpdater.once('update-not-available', onUpdateNotAvailable);
-        autoUpdater.once('error', onUpdateError);
-
-        // Set a timeout to avoid hanging indefinitely
-        setTimeout(() => {
-          this.cleanupManualUpdateListeners();
-          reject(new Error('Update check timed out after 30 seconds'));
-        }, 30000);
-      });
-
-      // Show checking dialog while update check is in progress
-      const checkingDialog = dialog.showMessageBox(this.mainWindow!, {
-        type: 'info',
-        title: 'Checking for Updates',
-        message: 'Checking for updates...',
-        buttons: [],
-        detail: 'Please wait while we check for available updates.'
-      });
-
-      // Start the update check
       console.log('Starting manual update check...');
-      const checkForUpdatesPromise = autoUpdater.checkForUpdates();
-
-      // Wait for either the update check to complete or timeout
-      await Promise.race([updateCheckPromise, checkForUpdatesPromise]);
-
+      // The regular auto-updater listeners will handle sending events to the renderer
+      await autoUpdater.checkForUpdates();
     } catch (error) {
       console.error('Manual update check failed:', error);
-      
-      await dialog.showMessageBox(this.mainWindow!, {
-        type: 'error',
-        title: 'Update Check Failed',
-        message: 'Failed to check for updates.',
-        detail: error instanceof Error ? error.message : 'Unknown error occurred while checking for updates.',
-        buttons: ['OK']
+      // Send error to renderer process
+      this.mainWindow?.webContents.send('app:update-error', {
+        message: error instanceof Error ? error.message : 'Unknown error occurred while checking for updates.'
       });
     } finally {
       this.isCheckingForUpdates = false;
+      this.isManualUpdateCheck = false; // Reset manual check flag
     }
   }
 
-  private cleanupManualUpdateListeners(): void {
-    this.isCheckingForUpdates = false;
-    // Remove all temporary listeners to prevent memory leaks
-    autoUpdater.removeAllListeners('update-available');
-    autoUpdater.removeAllListeners('update-not-available');
-    autoUpdater.removeAllListeners('error');
-    
-    // Re-add the original event listeners
-    this.setupAutoUpdaterListeners();
-  }
+
 
   private setupAutoUpdaterListeners(): void {
     autoUpdater.on('update-available', (info) => {
       console.log('Update available:', info.version);
+      // Send to renderer process for in-app notification
+      this.mainWindow?.webContents.send('app:update-available', {
+        version: info.version,
+        currentVersion: app.getVersion(),
+        releaseDate: info.releaseDate,
+        files: info.files
+      });
     });
 
     autoUpdater.on('update-not-available', (info) => {
       console.log('Update not available:', info.version);
+      // Only show notification for manual checks
+      if (this.isManualUpdateCheck) {
+        this.mainWindow?.webContents.send('app:update-not-available', {
+          currentVersion: app.getVersion()
+        });
+      }
     });
 
     autoUpdater.on('error', (err) => {
       console.error('Error in auto-updater:', err);
+      // Send error to renderer process
+      this.mainWindow?.webContents.send('app:update-error', {
+        message: err.message || 'Unknown update error'
+      });
     });
 
     autoUpdater.on('download-progress', (progressObj) => {
-      let log_message = "Download speed: " + progressObj.bytesPerSecond;
-      log_message = log_message + ' - Downloaded ' + progressObj.percent + '%';
-      log_message = log_message + ' (' + progressObj.transferred + "/" + progressObj.total + ')';
-      console.log(log_message);
+      const progress = {
+        percent: Math.round(progressObj.percent),
+        transferred: progressObj.transferred,
+        total: progressObj.total,
+        bytesPerSecond: progressObj.bytesPerSecond
+      };
+      
+      console.log(`Download progress: ${progress.percent}% (${this.formatBytes(progress.transferred)}/${this.formatBytes(progress.total)}) at ${this.formatBytes(progress.bytesPerSecond)}/s`);
+      
+      // Send progress to renderer process
+      this.mainWindow?.webContents.send('app:update-progress', progress);
     });
 
     autoUpdater.on('update-downloaded', (info) => {
       console.log('Update downloaded:', info.version);
-      // Auto-restart and install update
-      autoUpdater.quitAndInstall();
+      // Send to renderer process instead of auto-installing
+      this.mainWindow?.webContents.send('app:update-downloaded', {
+        version: info.version
+      });
     });
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   private cleanup(): void {

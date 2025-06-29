@@ -1,8 +1,9 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useCallback } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useCallback, useReducer, useEffect } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { generateFontInspectionCSV, downloadCSV } from '@/lib/csv-utils';
+import { FontMetadata } from '@/lib/models/inspection';
 
 // Types
 export interface InspectionItem {
@@ -458,12 +459,17 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
     if (projectInspections.length === 0) return;
     
     // Helper function to find font family from CSS @font-face declarations
-    const findFontFamilyFromCSS = (fontUrl: string, fontFaceDeclarations: any[]) => {
+    const findFontFamilyFromCSS = (fontUrl: string, fontFaceDeclarations: any[], metadata?: FontMetadata | null) => {
+      // PRIORITY 1: Use metadata font name (most accurate)
+      if (metadata?.fontName) {
+        return metadata.fontName;
+      }
+      
       if (!fontFaceDeclarations?.length) {
         return 'Unknown';
       }
       
-      // Try to match the font URL with @font-face declarations
+      // PRIORITY 2: Try to match the font URL with @font-face declarations
       for (const declaration of fontFaceDeclarations) {
         if (declaration.source && declaration.family) {
           // Check if the font URL is referenced in the @font-face source
@@ -495,8 +501,8 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
     // Prepare CSV data
     let csvContent = "data:text/csv;charset=utf-8,";
     
-    // Headers - now includes Font Family
-    csvContent += "Website URL,Font Family,Font Name,Format,Size (KB),Source\n";
+    // Headers - now includes Font Family and metadata
+    csvContent += "Website URL,Font Family,Font Name,Format,Size (KB),Source,Foundry,Copyright,Version,License Info,Embedding Permissions,Designer,Creation Date\n";
     
     // Add data from all inspections
     projectInspections.forEach(inspection => {
@@ -504,14 +510,32 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
       
       if (result?.result?.downloadedFonts?.length) {
         result.result.downloadedFonts.forEach((font: any) => {
-          const fontFamily = findFontFamilyFromCSS(font.url, result?.result?.fontFaceDeclarations || []);
+          const fontFamily = findFontFamilyFromCSS(font.url, result?.result?.fontFaceDeclarations || [], font.metadata);
+          
+          // Extract metadata fields
+          const metadata = font.metadata;
+          const embeddingPerms = metadata?.embeddingPermissions ? 
+            [
+              metadata.embeddingPermissions.installable ? 'Installable' : '',
+              metadata.embeddingPermissions.editable ? 'Editable' : '',
+              metadata.embeddingPermissions.previewAndPrint ? 'Preview&Print' : '',
+              metadata.embeddingPermissions.restrictedLicense ? 'Restricted' : ''
+            ].filter(Boolean).join(' | ') : '';
+          
           const row = [
             url,
             fontFamily,
             font.name || 'Unknown',
             font.format || 'Unknown',
             (font.size / 1024).toFixed(2) || '0',
-            font.source || 'Unknown'
+            font.source || 'Unknown',
+            metadata?.foundry || '',
+            metadata?.copyright || '',
+            metadata?.version || '',
+            metadata?.licenseInfo || '',
+            embeddingPerms,
+            metadata?.designer || '',
+            metadata?.creationDate || ''
           ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(',');
           
           csvContent += row + "\n";

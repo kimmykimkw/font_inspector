@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Font Inspector is a **Desktop Application** built with Electron that analyzes websites and reports which font files are downloaded and actively used. The tool utilizes a headless browser to inspect the network requests of a given website, filters font-related assets, and provides insights by comparing CSS declarations with actual applied fonts. The app supports both individual website inspections and projects containing multiple websites, offering a user-friendly desktop interface, robust backend inspection, and native macOS integration with proper permission handling.
+Font Inspector is a **Desktop Application** built with Electron that analyzes websites and reports which font files are downloaded and actively used. The tool utilizes a headless browser to inspect the network requests of a given website, filters font-related assets, and provides insights by comparing CSS declarations with actual applied fonts. **Advanced Font Compliance Features** include comprehensive font metadata extraction that identifies font foundries, copyright information, licensing terms, and embedding permissions to support legal compliance auditing. The app supports both individual website inspections and projects containing multiple websites, offering a user-friendly desktop interface, robust backend inspection, and native macOS integration with proper permission handling.
 
 **Authentication**: The app requires Google authentication to ensure user data privacy and personalized experience. Each user's inspections, projects, and history are completely isolated from other users. Access to the application is controlled through an admin-managed approval system with granular permission controls and usage limits.
 
@@ -45,11 +45,19 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 ### 3. Results Page
 - **Inspection Summary**: Overview for each inspected website by the user, including most used fonts and their usage frequency.
 - **Font Download Details**: List of downloaded font files (file names, formats, sizes in kilobytes (KB), source URLs) per website, with indicators for font source type (CDN, Google Fonts, Adobe Fonts, etc.).
+- **Font Metadata Analysis**: Advanced font metadata extraction displaying:
+  - **Foundry Information**: Font creator/manufacturer (Monotype, Adobe, Google, etc.)
+  - **Copyright Details**: Copyright notices embedded in font files
+  - **Licensing Information**: License descriptions and terms
+  - **Embedding Permissions**: Web embedding rights (installable, editable, preview & print, restricted)
+  - **Version & Designer**: Font version numbers and designer information
+  - **Creation Dates**: Font file creation timestamps
 - **Active Fonts**: Visual display of fonts actively used on each website (preview text).
 - **Inspection Log**: Detailed view of network requests and @font-face declarations per website.
-- **Enhanced CSV Export**: Comprehensive CSV export functionality with intelligent font family detection that includes:
+- **Enhanced CSV Export**: Comprehensive CSV export functionality with intelligent font family detection and metadata that includes:
   - **Font Family Identification**: Automatically matches downloaded font files with their CSS @font-face declarations to provide accurate font family names
   - **Detailed Font Information**: Exports font family, font name, format, size (in KB), URL, and source for each font
+  - **Complete Metadata Export**: Includes foundry, copyright, version, license info, embedding permissions, designer, and creation date
   - **Active Fonts Data**: Includes separate section for active fonts with usage statistics and element counts
   - **Smart Matching Algorithm**: Uses advanced matching logic to correlate font files with CSS declarations for accurate family names
 - **Navigation**: "Back to Project" button for inspections that are part of a project, allowing users to return to the Project Results page.
@@ -58,9 +66,14 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 - **Project Summary**: Overview of all websites in the user's project with statistics on total font files detected and actively used fonts.
   - **Most Active Font per Website**: Clickable buttons showing the most frequently used font for each website in the project, allowing quick navigation to individual inspection results.
 - **Font Usage Breakdown**: Visual display of all fonts used across websites in the project, showing usage count and relative frequency.
-- **Detected Fonts Table**: Comprehensive list of all font files detected across websites, including file details (with sizes in kilobytes (KB)), source, and which specific website the font appears on.
+- **Detected Fonts Table**: Comprehensive list of all font files detected across websites, including file details (with sizes in kilobytes (KB)), source, metadata, and which specific website the font appears on.
+- **Project-Wide Font Metadata**: Consolidated metadata analysis across all websites showing:
+  - **Foundry Distribution**: Overview of font foundries used across the project
+  - **Licensing Compliance**: Analysis of embedding permissions and license restrictions
+  - **Commercial vs Free Fonts**: Categorization based on foundry and licensing information
 - **Advanced Project CSV Export**: Enhanced CSV export for project-wide font analysis with:
   - **Cross-Website Font Analysis**: Export includes website URL, font family, font name, format, size (in KB), and source for comprehensive analysis
+  - **Complete Metadata Integration**: Includes foundry, copyright, version, license info, embedding permissions, designer, and creation date for all fonts across websites
   - **Font Family Resolution**: Intelligent matching of font files with CSS declarations across all websites in the project
   - **Consolidated Font Data**: Organized data structure that shows font usage patterns across multiple websites
   - **Accurate Size Reporting**: Font sizes converted to kilobytes with 2 decimal precision for consistent reporting
@@ -150,6 +163,7 @@ The admin system is a separate Next.js web application that provides comprehensi
 ### Backend:
 - **Environment**: Node.js (running as separate process in Electron)
 - **Inspection Engine**: puppeteer-core (with explicit Chrome path management)
+- **Font Metadata Analysis**: opentype.js and fontkit for comprehensive font metadata extraction
 - **API Framework**: Express.js
 - **Database**: Firebase/Firestore for storing user-specific inspection results and project data
 - **Authentication**: Firebase Auth for user verification and JWT token validation
@@ -227,6 +241,12 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Network Request Interception**: Filter and log requests for font files (.woff, .woff2, .ttf, etc.)
 - **CSS Parsing**: Extract @font-face rules to identify intended fonts
 - **Font Usage Detection**: Evaluate computed styles in the DOM to determine actively used fonts
+- **Font Metadata Extraction**: Comprehensive metadata extraction from font files including:
+  - **Foundry/Manufacturer Information**: Identify font creators and publishers
+  - **Copyright and Licensing**: Extract embedded copyright notices and license terms
+  - **Embedding Permissions**: Analyze font embedding rights and restrictions
+  - **Version and Designer Data**: Extract version numbers, creation dates, and designer information
+  - **Unique Identifiers**: Extract font-specific identifiers for tracking and verification
 - **Enhanced Error Handling**: Comprehensive error handling for browser launch, navigation, and network issues
 - **User Association**: All inspections are automatically associated with the authenticated user
 - **Cache Management**: Advanced cache control for consistent inspection results
@@ -437,7 +457,20 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **API Security**: Enhanced API security with proper token validation and user verification on all endpoints
 - **Backward Compatibility**: Maintained backward compatibility while implementing new security features
 
-### Manual Update Checking & Windows Support (Latest)
+### Font Metadata Extraction Implementation (Latest)
+- **Advanced Font Compliance Features**: Implemented comprehensive font metadata extraction for legal compliance auditing
+- **Font Parsing Libraries**: Integrated opentype.js and fontkit packages for parsing font file metadata
+- **Comprehensive Metadata Extraction**: Extract foundry information, copyright notices, licensing terms, embedding permissions, version data, designer information, and creation dates
+- **Data Model Extensions**: Extended FontMetadata and DownloadedFont interfaces to include complete metadata fields
+- **Inspection Service Integration**: Seamlessly integrated metadata extraction into existing font processing pipeline with graceful error handling
+- **Enhanced CSV Exports**: Updated CSV export functionality to include complete font metadata for compliance reporting
+- **Embedding Permissions Analysis**: Advanced analysis of OS/2 table fsType bits to determine web embedding rights
+- **Database Persistence**: Complete metadata is saved to Firestore and retrieved for historical analysis
+- **Performance Optimization**: Efficient metadata extraction with ~100-200ms overhead per font file
+- **Error Resilience**: Graceful degradation ensures inspections continue even if metadata extraction fails
+- **Business Value**: Provides crucial tools for font license compliance auditing and legal evidence gathering
+
+### Manual Update Checking & Windows Support
 - **Manual Update Menu Integration**: Added "Check for Updates..." menu item to the application menu bar following native platform conventions
 - **User-Friendly Update Dialogs**: Implemented comprehensive update checking with native dialogs for all update states (checking, available, not available, error)
 - **Development vs Production Awareness**: Smart update checking that displays appropriate messages in development vs production environments

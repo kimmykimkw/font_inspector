@@ -14,6 +14,7 @@ interface AnalysisProgressBarProps {
   completedWebsites?: number;
   failedWebsites?: number;
   hasFailures?: boolean;
+  errorMessage?: string;
 }
 
 export function AnalysisProgressBar({ 
@@ -27,7 +28,8 @@ export function AnalysisProgressBar({
   totalWebsites,
   completedWebsites,
   failedWebsites,
-  hasFailures
+  hasFailures,
+  errorMessage
 }: AnalysisProgressBarProps) {
   const [displayProgress, setDisplayProgress] = useState(0);
   const [stageName, setStageName] = useState('Initializing...');
@@ -235,7 +237,7 @@ export function AnalysisProgressBar({
               {/* Error state */}
               {status === 'failed' && (
                 <div className="inline-flex items-center px-4 py-2 bg-destructive/10 text-destructive rounded-full text-sm font-medium max-w-full truncate">
-                  Analysis failed. Please try again.
+                  {errorMessage || 'Analysis failed. Please try again.'}
                 </div>
               )}
             </div>
