@@ -612,27 +612,36 @@ class ElectronApp {
     // Update control handlers
     ipcMain.handle('app:downloadUpdate', async () => {
       try {
+        console.log('[IPC] Starting update download...');
         await autoUpdater.downloadUpdate();
+        console.log('[IPC] Update download initiated successfully');
         return { success: true };
       } catch (error) {
-        console.error('Failed to download update:', error);
+        console.error('[IPC] Failed to download update:', error);
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
       }
     });
 
     ipcMain.handle('app:installUpdate', async () => {
       try {
+        console.log('[IPC] Starting update installation...');
         autoUpdater.quitAndInstall();
+        console.log('[IPC] Update installation initiated - app will restart');
         return { success: true };
       } catch (error) {
-        console.error('Failed to install update:', error);
+        console.error('[IPC] Failed to install update:', error);
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
       }
     });
 
     ipcMain.handle('app:dismissUpdate', async () => {
-      // Just acknowledge the dismissal
-      return { success: true };
+      try {
+        console.log('[IPC] Update dialog dismissed by user');
+        return { success: true };
+      } catch (error) {
+        console.error('[IPC] Failed to dismiss update:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
     });
   }
 
@@ -698,32 +707,36 @@ class ElectronApp {
 
   private setupAutoUpdaterListeners(): void {
     autoUpdater.on('update-available', (info) => {
-      console.log('Update available:', info.version);
+      console.log('[AutoUpdater] Update available:', info.version);
       // Send to renderer process for in-app notification
-      this.mainWindow?.webContents.send('app:update-available', {
-        version: info.version,
-        currentVersion: app.getVersion(),
-        releaseDate: info.releaseDate,
-        files: info.files
-      });
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('app:update-available', {
+          version: info.version,
+          currentVersion: app.getVersion(),
+          releaseDate: info.releaseDate,
+          files: info.files
+        });
+      }
     });
 
     autoUpdater.on('update-not-available', (info) => {
-      console.log('Update not available:', info.version);
+      console.log('[AutoUpdater] Update not available:', info.version);
       // Only show notification for manual checks
-      if (this.isManualUpdateCheck) {
-        this.mainWindow?.webContents.send('app:update-not-available', {
+      if (this.isManualUpdateCheck && this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('app:update-not-available', {
           currentVersion: app.getVersion()
         });
       }
     });
 
     autoUpdater.on('error', (err) => {
-      console.error('Error in auto-updater:', err);
+      console.error('[AutoUpdater] Error in auto-updater:', err);
       // Send error to renderer process
-      this.mainWindow?.webContents.send('app:update-error', {
-        message: err.message || 'Unknown update error'
-      });
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('app:update-error', {
+          message: err.message || 'Unknown update error'
+        });
+      }
     });
 
     autoUpdater.on('download-progress', (progressObj) => {
@@ -734,18 +747,22 @@ class ElectronApp {
         bytesPerSecond: progressObj.bytesPerSecond
       };
       
-      console.log(`Download progress: ${progress.percent}% (${this.formatBytes(progress.transferred)}/${this.formatBytes(progress.total)}) at ${this.formatBytes(progress.bytesPerSecond)}/s`);
+      console.log(`[AutoUpdater] Download progress: ${progress.percent}% (${this.formatBytes(progress.transferred)}/${this.formatBytes(progress.total)}) at ${this.formatBytes(progress.bytesPerSecond)}/s`);
       
       // Send progress to renderer process
-      this.mainWindow?.webContents.send('app:update-progress', progress);
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('app:update-progress', progress);
+      }
     });
 
     autoUpdater.on('update-downloaded', (info) => {
-      console.log('Update downloaded:', info.version);
+      console.log('[AutoUpdater] Update downloaded:', info.version);
       // Send to renderer process instead of auto-installing
-      this.mainWindow?.webContents.send('app:update-downloaded', {
-        version: info.version
-      });
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('app:update-downloaded', {
+          version: info.version
+        });
+      }
     });
   }
 

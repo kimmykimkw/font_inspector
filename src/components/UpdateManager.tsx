@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Download, X, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
@@ -22,47 +22,68 @@ interface DownloadProgress {
 type UpdateState = 'none' | 'available' | 'downloading' | 'downloaded' | 'error' | 'up-to-date';
 
 export function UpdateManager() {
+  // Initialize isElectron immediately to avoid race condition
+  const [isElectron] = useState(() => typeof window !== 'undefined' && !!window.electronAPI);
   const [updateState, setUpdateState] = useState<UpdateState>('none');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isElectron, setIsElectron] = useState(false);
+  const [isComponentReady, setIsComponentReady] = useState(false);
+
+  // Debug logging function
+  const debugLog = useCallback((message: string, data?: any) => {
+    console.log(`[UpdateManager] ${message}`, data || '');
+  }, []);
 
   useEffect(() => {
-    // Check if we're in Electron environment
-    const electronAvailable = typeof window !== 'undefined' && !!window.electronAPI;
-    setIsElectron(electronAvailable);
-    
-    if (!electronAvailable) return;
+    if (!isElectron) {
+      debugLog('Not in Electron environment, skipping update manager setup');
+      return;
+    }
+
+    debugLog('Setting up UpdateManager event listeners');
+    setIsComponentReady(true);
 
     // Set up event listeners for update events
     const handleUpdateAvailable = (event: any, info: UpdateInfo) => {
-      console.log('Update available:', info);
+      debugLog('Update available event received', info);
       setUpdateInfo(info);
       setUpdateState('available');
     };
 
     const handleUpdateProgress = (event: any, progress: DownloadProgress) => {
-      console.log('Download progress:', progress);
+      debugLog('Download progress event received', progress);
       setDownloadProgress(progress);
       setUpdateState('downloading');
     };
 
     const handleUpdateDownloaded = (event: any, info: { version: string }) => {
-      console.log('Update downloaded:', info);
+      debugLog('Update downloaded event received', info);
       setUpdateState('downloaded');
       setDownloadProgress(null);
+      
+      // Preserve or create updateInfo with version information
+      setUpdateInfo(prev => {
+        if (prev) {
+          return { ...prev, version: info.version };
+        }
+        // Fallback: create basic updateInfo if it doesn't exist
+        return {
+          version: info.version,
+          currentVersion: 'unknown'
+        };
+      });
     };
 
     const handleUpdateError = (event: any, error: { message: string }) => {
-      console.error('Update error:', error);
+      debugLog('Update error event received', error);
       setErrorMessage(error.message);
       setUpdateState('error');
       setDownloadProgress(null);
     };
 
     const handleUpdateNotAvailable = (event: any, info: { currentVersion: string }) => {
-      console.log('No updates available:', info);
+      debugLog('No updates available event received', info);
       setUpdateInfo({ version: info.currentVersion, currentVersion: info.currentVersion });
       setUpdateState('up-to-date');
     };
@@ -76,13 +97,24 @@ export function UpdateManager() {
 
     // Cleanup function
     return () => {
+      debugLog('Cleaning up UpdateManager event listeners');
       window.electronAPI.removeAllListeners('app:update-available');
       window.electronAPI.removeAllListeners('app:update-not-available');
       window.electronAPI.removeAllListeners('app:update-progress');
       window.electronAPI.removeAllListeners('app:update-downloaded');
       window.electronAPI.removeAllListeners('app:update-error');
     };
-  }, []);
+  }, [isElectron, debugLog]);
+
+  // Log state changes for debugging
+  useEffect(() => {
+    debugLog('State changed', {
+      updateState,
+      hasUpdateInfo: !!updateInfo,
+      isComponentReady,
+      updateVersion: updateInfo?.version
+    });
+  }, [updateState, updateInfo, isComponentReady, debugLog]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
@@ -94,6 +126,7 @@ export function UpdateManager() {
 
   const handleDownloadUpdate = async () => {
     try {
+      debugLog('Starting update download...');
       await window.electronAPI.downloadUpdate();
       setUpdateState('downloading');
     } catch (error) {
@@ -105,6 +138,7 @@ export function UpdateManager() {
 
   const handleInstallUpdate = async () => {
     try {
+      debugLog('Starting update installation...');
       await window.electronAPI.installUpdate();
       // App will restart after this
     } catch (error) {
@@ -116,6 +150,7 @@ export function UpdateManager() {
 
   const handleDismissUpdate = async () => {
     try {
+      debugLog('Dismissing update dialog...');
       await window.electronAPI.dismissUpdate();
       setUpdateState('none');
       setUpdateInfo(null);
@@ -126,8 +161,13 @@ export function UpdateManager() {
     }
   };
 
-  // Don't render anything if not in Electron or no update state
-  if (!isElectron || updateState === 'none') {
+  // Don't render anything if not in Electron environment
+  if (!isElectron) {
+    return null;
+  }
+
+  // Don't render anything if component is not ready or no update state
+  if (!isComponentReady || updateState === 'none') {
     return null;
   }
 
@@ -215,7 +255,7 @@ export function UpdateManager() {
             </div>
           )}
 
-          {updateState === 'downloaded' && updateInfo && (
+          {updateState === 'downloaded' && (
             <div className="space-y-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-2">
@@ -223,7 +263,7 @@ export function UpdateManager() {
                   <div>
                     <h3 className="font-semibold text-sm">Update Ready</h3>
                     <p className="text-xs text-gray-600">
-                      Version {updateInfo.version} downloaded
+                      {updateInfo?.version ? `Version ${updateInfo.version} downloaded` : 'Update downloaded'}
                     </p>
                   </div>
                 </div>
