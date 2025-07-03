@@ -11,6 +11,7 @@ out/
 # Production build
 dist/
 build/
+dist-server/
 
 # Environment variables
 .env
@@ -32,6 +33,11 @@ firebase-service-account.json
 # Logs
 logs
 *.log
+dev-debug.txt
+dev-logs.txt
+electron-logs*.txt
+electron-test.txt
+server-logs.txt
 
 # Runtime data
 pids

@@ -313,23 +313,16 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
     const annotationCount = await page.evaluate((data) => {
       const { activeFonts, downloadedFonts } = data;
       
-      // System fonts to ignore (not interesting for users)
-      const systemFonts = new Set([
-        '-apple-system', 'system-ui', 'blinkmacsystemfont', 'segoe ui', 'roboto',
-        'helvetica neue', 'arial', 'noto sans', 'sans-serif', 'apple color emoji',
-        'segoe ui emoji', 'segoe ui symbol', 'times', 'times new roman', 'serif',
-        'courier', 'courier new', 'monospace', 'georgia', 'palatino', 'book antiqua',
-        'trebuchet ms', 'lucida grande', 'helvetica', 'verdana', 'tahoma'
-      ]);
-      
       // Extract downloaded font families (the interesting ones)
-      const downloadedFontFamilies = new Set();
+      const downloadedFontFamilies = new Set<string>();
       if (downloadedFonts && downloadedFonts.length > 0) {
         downloadedFonts.forEach((font: any) => {
+          // First try metadata font name
           if (font.metadata?.fontName) {
             downloadedFontFamilies.add(font.metadata.fontName.toLowerCase());
           }
-          // Also try to extract from filename
+          
+          // Then try filename-based name
           const cleanName = font.name
             .replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '')
             .replace(/[-_]/g, ' ')
@@ -341,21 +334,37 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
         });
       }
       
-      // Filter active fonts to only meaningful ones
+      // Filter active fonts to only those that were downloaded
       const meaningfulFonts = activeFonts.filter((font: any) => {
         const familyLower = font.family.toLowerCase().replace(/["']/g, '').trim();
-        
-        // Skip system fonts
-        if (systemFonts.has(familyLower)) {
-          return false;
-        }
         
         // Skip if no elements use this font
         if (!font.elementCount || font.elementCount === 0) {
           return false;
         }
         
-        return true;
+        // Check if this font family matches any of our downloaded fonts
+        for (const downloadedFont of downloadedFontFamilies) {
+          // Direct match
+          if (familyLower === downloadedFont) {
+            return true;
+          }
+          
+          // Font name is contained within family or vice versa
+          if (familyLower.includes(downloadedFont) || downloadedFont.includes(familyLower)) {
+            return true;
+          }
+          
+          // Word-based match for compound names
+          const familyWords = familyLower.split(/[-_\s]+/);
+          const downloadedWords = downloadedFont.split(/[-_\s]+/);
+          if (familyWords.some((word: string) => downloadedWords.includes(word)) ||
+              downloadedWords.some((word: string) => familyWords.includes(word))) {
+            return true;
+          }
+        }
+        
+        return false;
       });
       
       console.log(`Filtered to ${meaningfulFonts.length} meaningful fonts from ${activeFonts.length} total`);
@@ -446,8 +455,8 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
             return;
           }
           
-          // Check if element is in viewport (roughly)
-          if (rect.bottom < 0 || rect.top > window.innerHeight * 3) {
+          // Check if element is in viewport (roughly) - increased to 10x viewport height
+          if (rect.bottom < 0 || rect.top > window.innerHeight * 10) {
             return;
           }
           
@@ -470,18 +479,25 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
                 priority += 3;
               }
               
-              // Size and visibility factors
+              // Size and visibility factors - more balanced scoring
               if (rect.width * rect.height > 1000) priority += 4;
-              if (rect.top < window.innerHeight) priority += 5; // In initial viewport
-              if (rect.top < window.innerHeight / 2) priority += 2; // Above the fold
+              if (rect.top < window.innerHeight) priority += 3; // Reduced from 5
+              if (rect.top < window.innerHeight / 2) priority += 1; // Reduced from 2
+              
+              // Add priority for elements further down the page to balance distribution
+              const viewportPosition = rect.top / window.innerHeight;
+              if (viewportPosition > 1 && viewportPosition <= 3) priority += 2;
+              if (viewportPosition > 3 && viewportPosition <= 6) priority += 3;
+              if (viewportPosition > 6) priority += 4;
               
               // Text content quality
               const textContent = element.textContent?.trim() || '';
               if (textContent.length > 20) priority += 2; // Substantial text content
               if (textContent.length < 5) priority -= 2; // Very short text (likely not meaningful)
               
-              // Position-based priority (favor left-aligned and top elements)
+              // Position-based priority (consider both left and right alignment)
               if (rect.left < window.innerWidth / 3) priority += 1; // Left side of screen
+              if (rect.left > (window.innerWidth * 2/3)) priority += 1; // Right side of screen
               
               // Avoid generic/repetitive text
               const genericTexts = ['click here', 'read more', 'learn more', 'more', 'menu'];
@@ -504,7 +520,7 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
       
       // Sort by priority and limit to reasonable number
       annotations.sort((a, b) => b.priority - a.priority);
-      const maxAnnotations = Math.min(50, annotations.length);
+      const maxAnnotations = Math.min(100, annotations.length); // Increased from 50 to 100
       const selectedAnnotations = annotations.slice(0, maxAnnotations);
       
       // Step 2: Group annotations by semantic similarity using fingerprints

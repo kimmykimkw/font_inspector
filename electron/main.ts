@@ -180,6 +180,21 @@ class ElectronApp {
       console.log(`Console ${level}: ${message}`);
     });
 
+    // Enable context menu for text fields
+    this.mainWindow.webContents.on('context-menu', (event, params) => {
+      const { isEditable, editFlags } = params;
+      if (isEditable) {
+        const menu = Menu.buildFromTemplate([
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { type: 'separator' },
+          { role: 'selectAll' }
+        ]);
+        menu.popup();
+      }
+    });
+
     if (serverStarted) {
       try {
         await this.mainWindow.loadURL(appUrl);

@@ -368,40 +368,47 @@ The admin system is a separate Next.js web application that provides comprehensi
 
 ## Recent Major Updates
 
-### Screenshot Feature Implementation (Latest)
-- **Interactive Screenshot Viewer**: Implemented comprehensive screenshot functionality with dual-view tabbed interface showing original and annotated website captures
-- **Smart Font Annotation System**: Advanced annotation system that highlights text elements with colored borders and always-visible font labels, filtering out system fonts to show only meaningful web fonts
-- **Local File Storage**: Cost-optimized screenshot storage using local filesystem (~/FontInspector/screenshots/) instead of cloud storage, with organized directory structure per user and inspection
-- **Intelligent Annotation Filtering**: Smart filtering system that excludes system fonts (-apple-system, Times, Arial, etc.) and focuses on downloaded web fonts with maximum ~50 annotations for optimal readability
-- **Full-Height Screenshot Display**: Enhanced UI allowing users to view entire screenshot height with scrolling, eliminating fixed-height container constraints
-- **Zoom & Pan Functionality**: Interactive screenshot viewer with zoom controls, pan capability, and download options for both original and annotated versions
-- **Environment-Aware Capture**: Conditional screenshot functionality that only operates in Electron desktop environment with proper fallback handling
-- **Annotation Visual Design**: Clean visual design with colored borders around text elements, always-visible font labels, and connecting lines for clear font identification
-- **Performance Optimization**: Efficient screenshot capture and annotation processing with graceful error handling and minimal impact on inspection performance
-- **Data Flow Optimization**: Smart context data checking to prevent unnecessary API calls and authentication errors when screenshot data already exists
+### Font Metadata Extraction Implementation (Latest)
+- **Advanced Font Compliance Features**: Implemented comprehensive font metadata extraction for legal compliance auditing
+- **Font Parsing Libraries**: Integrated opentype.js and fontkit packages for parsing font file metadata
+- **Comprehensive Metadata Extraction**: Extract foundry information, copyright notices, licensing terms, embedding permissions, version data, designer information, and creation dates
+- **Data Model Extensions**: Extended FontMetadata and DownloadedFont interfaces to include complete metadata fields
+- **Inspection Service Integration**: Seamlessly integrated metadata extraction into existing font processing pipeline with graceful error handling
+- **Enhanced CSV Exports**: Updated CSV export functionality to include complete font metadata for compliance reporting
+- **Embedding Permissions Analysis**: Advanced analysis of OS/2 table fsType bits to determine web embedding rights
+- **Database Persistence**: Complete metadata is saved to Firestore and retrieved for historical analysis
+- **Performance Optimization**: Efficient metadata extraction with ~100-200ms overhead per font file
+- **Error Resilience**: Graceful degradation ensures inspections continue even if metadata extraction fails
+- **Business Value**: Provides crucial tools for font license compliance auditing and legal evidence gathering
 
-### Font Metadata & Error Handling Enhancements
-- **Fixed Font Metadata Extraction**: Resolved critical issue where font metadata always showed "not available" despite WOFF2 files containing comprehensive metadata in the name table
-- **OpenType.js Integration Fix**: Fixed metadata extraction by properly handling OpenType.js name table objects vs strings, enabling extraction of font names, copyright, version, license info, and foundry data
-- **Metadata-First Font Naming**: Implemented 4-tier priority system for font names: metadata → active fonts → CSS declarations → filename fallback for maximum accuracy
-- **Enhanced Active Fonts Display**: Added font file names with extensions for web fonts, providing users with clear visibility of downloaded font files alongside font family names
-- **System Font Detection**: Implemented intelligent system font identification with proper labeling (e.g., "System font - Times New Roman") to distinguish between web fonts and pre-installed system fonts
-- **Sophisticated Font Matching**: Created advanced font-to-file matching algorithms using multiple strategies including filename matching, common prefix detection, and word-based matching to accurately correlate fonts with their source files
-- **Specific Error Messages**: Replaced generic "Analysis failed. Please try again." messages with detailed, specific failure reasons to help users understand and resolve inspection issues
-- **Comprehensive Font Metadata Extraction**: Enhanced metadata extraction to include font foundry, copyright information, version numbers, license details, embedding permissions, designer info, and creation dates
-- **Improved Error Handling**: Added extensive debugging capabilities and graceful error handling throughout the font processing pipeline
-- **Enhanced CSV Export Integration**: Updated CSV exports to leverage improved font metadata and accurate font family identification for better reporting
+### Font Family Detection & CSV Export Enhancement
+- **Intelligent Font Family Detection**: Implemented 4-tier priority system for font names:
+  1. Metadata font name (most accurate)
+  2. Active fonts matching
+  3. CSS @font-face declarations
+  4. Filename fallback
+- **Enhanced Data Export**: CSV exports now include comprehensive font family information alongside existing font name, format, size, URL, and source data
+- **Smart Matching Algorithm**: Advanced algorithm correlates font URLs with CSS declarations using multiple matching strategies for accurate font family names
+- **Improved Size Formatting**: Font sizes now exported in kilobytes with 2 decimal precision for consistent and readable reporting
+- **Active Fonts Integration**: Added separate active fonts section in inspection CSV exports with usage statistics and element counts
+- **Project-Wide Analysis**: Enhanced project CSV exports include website URL, font family, and consolidated font data for cross-website analysis
+- **Fallback Handling**: Graceful fallback to 'Unknown' when font family cannot be determined from CSS declarations
+- **Consistent Headers**: Standardized CSV headers across inspection and project exports for better data analysis workflows
 
-### UI/UX and Branding Updates (Current)
-- **Title Simplification**: Streamlined application branding by removing "by Kimmy" from main titles (Header, Welcome Banner, Login Page) while retaining attribution in footer
-- **Chrome Browser Requirement**: Added prominent browser requirement notification in About page informing users that Chrome browser is required for Font Inspector to function properly
-- **Admin System Deployment**: Successfully deployed admin web application to Firebase Hosting with dedicated admin URL for system administrators
+### UI/UX and System Requirements Updates
+- **Title Simplification**: Streamlined application branding by removing "by Kimmy" from main titles while retaining attribution in footer
+- **Chrome Browser Requirement**: Added prominent browser requirement notification in About page informing users that Chrome browser is required
+- **System Font Detection**: Implemented intelligent system font identification with proper labeling (e.g., "System font - Times New Roman")
+- **Enhanced Active Fonts Display**: Added font file names with extensions for web fonts, providing clear visibility of downloaded font files
+- **Error Message Improvements**: Replaced generic failure messages with detailed, specific error reasons for better troubleshooting
+- **Admin System Deployment**: Successfully deployed admin web application to Firebase Hosting with dedicated admin URL
 
-### Admin System Enhancements (Current)
-- **Bulk Permission Management**: Implemented bulk operations for efficiently updating inspection and project limits across multiple users simultaneously, reducing administrative overhead
-- **User Version Tracking**: Added comprehensive app version tracking system that records the current app version for each user login and profile update
-- **Version Migration System**: Created migration script (`add-version-to-users.js`) to retroactively add version information to existing users with dry-run capability for safe deployment
-- **Enhanced User Analytics**: Improved user statistics tracking with version-aware analytics for better understanding of user adoption patterns
+### Admin System Enhancements
+- **Bulk Permission Management**: Implemented bulk operations for efficiently updating inspection and project limits across multiple users
+- **User Version Tracking**: Added comprehensive app version tracking system that records current app version for each user login
+- **Version Migration System**: Created migration script for retroactively adding version information to existing users
+- **Enhanced User Analytics**: Improved user statistics tracking with version-aware analytics for adoption patterns
+- **Permission System Refinements**: Enhanced real-time permission validation and usage limit tracking
 
 ### Electron Conversion (Desktop Application)
 - **Platform Migration**: Successfully converted from Progressive Web App (PWA) to native desktop application using Electron
@@ -500,19 +507,6 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Authentication Gate Enhancements**: Improved authentication flow with better error handling and user feedback
 - **API Security**: Enhanced API security with proper token validation and user verification on all endpoints
 - **Backward Compatibility**: Maintained backward compatibility while implementing new security features
-
-### Font Metadata Extraction Implementation (Latest)
-- **Advanced Font Compliance Features**: Implemented comprehensive font metadata extraction for legal compliance auditing
-- **Font Parsing Libraries**: Integrated opentype.js and fontkit packages for parsing font file metadata
-- **Comprehensive Metadata Extraction**: Extract foundry information, copyright notices, licensing terms, embedding permissions, version data, designer information, and creation dates
-- **Data Model Extensions**: Extended FontMetadata and DownloadedFont interfaces to include complete metadata fields
-- **Inspection Service Integration**: Seamlessly integrated metadata extraction into existing font processing pipeline with graceful error handling
-- **Enhanced CSV Exports**: Updated CSV export functionality to include complete font metadata for compliance reporting
-- **Embedding Permissions Analysis**: Advanced analysis of OS/2 table fsType bits to determine web embedding rights
-- **Database Persistence**: Complete metadata is saved to Firestore and retrieved for historical analysis
-- **Performance Optimization**: Efficient metadata extraction with ~100-200ms overhead per font file
-- **Error Resilience**: Graceful degradation ensures inspections continue even if metadata extraction fails
-- **Business Value**: Provides crucial tools for font license compliance auditing and legal evidence gathering
 
 ### Manual Update Checking & Windows Support
 - **Manual Update Menu Integration**: Added "Check for Updates..." menu item to the application menu bar following native platform conventions
