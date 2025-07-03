@@ -93,6 +93,12 @@ export function UrlInputForm() {
                   placeholder="https://example.com"
                   value={url}
                   onChange={(e) => handleUrlChange(index, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !isSubmitting && permissions.canCreateInspection) {
+                      e.preventDefault();
+                      handleSubmit(e as any);
+                    }
+                  }}
                   required={index === 0}
                   className="pl-10"
                   disabled={!permissions.canCreateInspection && !permissions.isLoading}

@@ -189,7 +189,7 @@ export function ScreenshotViewer({ inspectionId, screenshots, url }: ScreenshotV
           </CardTitle>
           <CardDescription>
             Captured on {formatCaptureTime(screenshots.capturedAt)}
-            {screenshots.annotationCount && ` • ${screenshots.annotationCount} font annotations`}
+            {typeof screenshots.annotationCount === 'number' && ` • ${screenshots.annotationCount} font annotations`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -241,7 +241,7 @@ export function ScreenshotViewer({ inspectionId, screenshots, url }: ScreenshotV
             </CardTitle>
             <CardDescription>
               Captured on {formatCaptureTime(screenshots.capturedAt)}
-              {screenshots.annotationCount && ` • ${screenshots.annotationCount} font annotations`}
+              {typeof screenshots.annotationCount === 'number' && ` • ${screenshots.annotationCount} font annotations`}
               {screenshots.dimensions && 
                 ` • ${screenshots.dimensions.width}×${screenshots.dimensions.height}px`
               }
@@ -285,7 +285,7 @@ export function ScreenshotViewer({ inspectionId, screenshots, url }: ScreenshotV
               <TabsTrigger value="original">Original</TabsTrigger>
               <TabsTrigger value="annotated">
                 Font Annotations
-                {screenshots.annotationCount && (
+                {typeof screenshots.annotationCount === 'number' && (
                   <span className="ml-1 text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5">
                     {screenshots.annotationCount}
                   </span>
@@ -365,10 +365,15 @@ export function ScreenshotViewer({ inspectionId, screenshots, url }: ScreenshotV
                 </div>
               )}
             </div>
-            {screenshots.annotationCount && screenshots.annotationCount > 0 && (
+            {typeof screenshots.annotationCount === 'number' && screenshots.annotationCount > 0 && (
               <p className="text-xs text-muted-foreground mt-2">
                 Colored boxes and labels indicate where specific fonts are used on the page.
                 Each color represents a different font family.
+              </p>
+            )}
+            {typeof screenshots.annotationCount === 'number' && screenshots.annotationCount === 0 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                No meaningful web fonts were found to annotate on this page. The website may be using only system fonts.
               </p>
             )}
           </TabsContent>

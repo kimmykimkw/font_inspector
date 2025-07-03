@@ -26,12 +26,13 @@
     "build-electron": "tsc -p electron/tsconfig.json",
     "build:all": "npm run build && npm run build-electron",
     "build:prod": "cross-env NODE_ENV=production npm run build:all",
-    "dist": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:prod && electron-builder --publish=never",
-    "dist:mac": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:prod && electron-builder --mac --publish=never",
+    "dist": "npm run build:prod && electron-builder --publish=never",
+    "dist:mac": "cross-env NODE_ENV=production npm run build:prod && electron-builder --mac --publish=never",
+    "dist:mac:signed": "cross-env NODE_ENV=production npm run build:prod && electron-builder --mac --publish=never",
     "dist:win": "npm run build:prod && electron-builder --win --publish=never",
-    "publish:mac": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:prod && electron-builder --mac --publish=always",
+    "publish:mac": "cross-env NODE_ENV=production npm run build:prod && electron-builder --mac --publish=always",
     "publish:win": "npm run build:prod && electron-builder --win --publish=always",
-    "publish:all": "cross-env CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:prod && electron-builder --publish=always",
+    "publish:all": "npm run build:prod && electron-builder --publish=always",
     "postinstall": "electron-builder install-app-deps",
     "migrate:add-version": "node scripts/add-version-to-users.js",
     "test:firebase": "node scripts/test-firebase-config.js"
@@ -102,7 +103,7 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.fontinspector.app",
+    "appId": "com.kimmykim.fontinspector",
     "productName": "Font Inspector",
     "directories": {
       "output": "release",
@@ -153,9 +154,12 @@
       "icon": "electron/assets/icon.icns",
       "category": "public.app-category.developer-tools",
       "bundleVersion": "1.0.0",
-      "hardenedRuntime": false,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "identity": null,
+      "identity": "KUN WON KIM (D4D85KJ6FX)",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
       "extraResources": [
         {
           "from": "build/background.png",
@@ -189,17 +193,18 @@
       "format": "ULFO",
       "background": "build/background.png",
       "window": {
-        "width": 540,
-        "height": 380
+        "width": 600,
+        "height": 400
       },
       "contents": [
         {
-          "x": 135,
-          "y": 280
+          "x": 150,
+          "y": 200,
+          "type": "file"
         },
         {
-          "x": 405,
-          "y": 280,
+          "x": 450,
+          "y": 200,
           "type": "link",
           "path": "/Applications"
         }

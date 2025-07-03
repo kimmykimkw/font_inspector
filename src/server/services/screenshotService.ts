@@ -400,7 +400,41 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
             return;
           }
           
-          // Check if element has text content
+          // Enhanced text element validation - check for direct text content
+          const hasDirectText = Array.from(element.childNodes).some(node => 
+            node.nodeType === Node.TEXT_NODE && node.textContent && node.textContent.trim().length >= 3
+          );
+          
+          // Skip if no direct text content (likely a container)
+          if (!hasDirectText) {
+            return;
+          }
+          
+          // Additional validation for div elements to avoid containers
+          const tagName = element.tagName.toLowerCase();
+          if (tagName === 'div') {
+            const childCount = element.children.length;
+            const hasBlockChildren = Array.from(element.children).some(child => 
+              ['DIV', 'P', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'NAV'].includes(child.tagName)
+            );
+            
+            // Skip divs that are likely containers
+            if (childCount > 2 || hasBlockChildren) {
+              return;
+            }
+            
+            // Also check if div has mostly non-text content
+            const textLength = element.textContent?.trim().length || 0;
+            const childTextLength = Array.from(element.children)
+              .reduce((total, child) => total + (child.textContent?.length || 0), 0);
+            
+            // If most text comes from children rather than direct text, skip
+            if (childTextLength > textLength * 0.7) {
+              return;
+            }
+          }
+          
+          // Final text content check
           const textContent = element.textContent?.trim();
           if (!textContent || textContent.length < 3) {
             return;
@@ -422,12 +456,38 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
             if (fontFamily.includes(familyName) || 
                 fontFamily.toLowerCase().includes(familyName.toLowerCase())) {
               
-              // Calculate priority (headings > larger text > more visible elements)
+              // Enhanced priority calculation for better representative selection
               let priority = 1;
-              const tagName = element.tagName.toLowerCase();
-              if (tagName.match(/^h[1-6]$/)) priority += 10;
-              if (rect.width * rect.height > 1000) priority += 5;
-              if (rect.top < window.innerHeight) priority += 3; // In initial viewport
+              
+              // Semantic importance (highest priority)
+              if (tagName.match(/^h[1-6]$/)) {
+                const headingLevel = parseInt(tagName.charAt(1));
+                priority += 15 - headingLevel; // h1 gets 14, h2 gets 13, etc.
+              }
+              
+              // Semantic text elements get moderate boost
+              if (['p', 'span', 'a', 'button', 'label', 'strong', 'em'].includes(tagName)) {
+                priority += 3;
+              }
+              
+              // Size and visibility factors
+              if (rect.width * rect.height > 1000) priority += 4;
+              if (rect.top < window.innerHeight) priority += 5; // In initial viewport
+              if (rect.top < window.innerHeight / 2) priority += 2; // Above the fold
+              
+              // Text content quality
+              const textContent = element.textContent?.trim() || '';
+              if (textContent.length > 20) priority += 2; // Substantial text content
+              if (textContent.length < 5) priority -= 2; // Very short text (likely not meaningful)
+              
+              // Position-based priority (favor left-aligned and top elements)
+              if (rect.left < window.innerWidth / 3) priority += 1; // Left side of screen
+              
+              // Avoid generic/repetitive text
+              const genericTexts = ['click here', 'read more', 'learn more', 'more', 'menu'];
+              if (genericTexts.some(generic => textContent.toLowerCase().includes(generic))) {
+                priority -= 3;
+              }
               
               annotations.push({
                 element,
@@ -447,31 +507,56 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
       const maxAnnotations = Math.min(50, annotations.length);
       const selectedAnnotations = annotations.slice(0, maxAnnotations);
       
-      // Group nearby annotations to reduce clutter
-      const groupedAnnotations = [];
-      const groupDistance = 100; // pixels
+      // Step 2: Group annotations by semantic similarity using fingerprints
+      const semanticGroups = new Map<string, typeof selectedAnnotations>();
       
-      for (const annotation of selectedAnnotations) {
-        let grouped = false;
+      selectedAnnotations.forEach((annotation) => {
+        const computedStyle = window.getComputedStyle(annotation.element);
+        const fingerprint = createElementFingerprint(annotation.element, computedStyle, annotation.font);
         
-        for (const group of groupedAnnotations) {
-          const distance = Math.sqrt(
-            Math.pow(annotation.rect.left - group.rect.left, 2) +
-            Math.pow(annotation.rect.top - group.rect.top, 2)
-          );
-          
-          if (distance < groupDistance && annotation.font === group.font) {
-            grouped = true;
-            break;
-          }
+        if (!semanticGroups.has(fingerprint)) {
+          semanticGroups.set(fingerprint, []);
+        }
+        semanticGroups.get(fingerprint)!.push(annotation);
+      });
+      
+      console.log(`Grouped ${selectedAnnotations.length} annotations into ${semanticGroups.size} semantic groups`);
+      
+      // Debug: Show group details
+      let groupIndex = 0;
+      semanticGroups.forEach((group, fingerprint) => {
+        if (group.length > 1) {
+          console.log(`Group ${++groupIndex} (${fingerprint}): ${group.length} similar elements - "${group[0].element.textContent?.trim().substring(0, 30)}..."`);
+        }
+      });
+      
+      // Step 3: Select best representative from each semantic group
+      const groupedAnnotations = Array.from(semanticGroups.values()).map(group => {
+        // Sort by priority (highest first) to select the best representative
+        const representative = group.sort((a, b) => b.priority - a.priority)[0];
+        
+        // Debug: Log when we're selecting a representative from multiple candidates
+        if (group.length > 1) {
+          console.log(`Selected representative: "${representative.element.textContent?.trim().substring(0, 40)}" (priority: ${representative.priority}) from ${group.length} similar elements`);
         }
         
-        if (!grouped) {
-          groupedAnnotations.push(annotation);
-        }
+        return representative;
+      });
+      
+      // Step 1: Create element fingerprints to identify similar elements
+      function createElementFingerprint(element: HTMLElement, computedStyle: CSSStyleDeclaration, fontFamily: string): string {
+        const textLength = element.textContent?.trim().length || 0;
+        const textCategory = textLength <= 10 ? 'short' : textLength <= 30 ? 'medium' : 'long';
+        const fontSize = parseInt(computedStyle.fontSize);
+        const sizeCategory = fontSize < 14 ? 'small' : fontSize <= 18 ? 'medium' : 'large';
+        const tagName = element.tagName.toLowerCase();
+        const parentTag = element.parentElement?.tagName.toLowerCase() || 'none';
+        
+        // Create a comprehensive fingerprint
+        return `${tagName}-${fontFamily}-${textCategory}-${sizeCategory}-${parentTag}`;
       }
       
-      console.log(`Creating ${groupedAnnotations.length} annotations from ${selectedAnnotations.length} candidates`);
+      console.log(`Semantic grouping results: ${selectedAnnotations.length} candidates → ${semanticGroups.size} groups → ${groupedAnnotations.length} final annotations`);
       
              // Create visual annotations with borders and labels
        let annotationCount = 0;

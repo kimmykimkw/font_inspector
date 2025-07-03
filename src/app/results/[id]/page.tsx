@@ -617,7 +617,7 @@ export default function ResultsPage() {
             <TabsTrigger value="screenshots" className="flex items-center gap-2">
               <Camera className="h-4 w-4" />
               Screenshots
-              {inspection?.screenshots?.annotationCount && (
+              {typeof inspection?.screenshots?.annotationCount === 'number' && (
                 <span className="ml-1 text-xs bg-primary text-primary-foreground rounded-full px-1.5 py-0.5">
                   {inspection.screenshots.annotationCount}
                 </span>

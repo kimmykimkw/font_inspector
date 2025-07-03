@@ -165,25 +165,22 @@ export async function inspectWebsite(url: string, options?: {
     const downloadedFonts: FontFile[] = [];
     await setupRequestInterception(page, downloadedFonts);
     
-    // Navigate to the URL with a timeout
+    // Navigate to the URL with enhanced loading wait
     console.log(`Navigating to ${url}...`);
     try {
-      await page.goto(url, { 
-        waitUntil: 'networkidle2',
-        timeout: 30000 
-      });
-      console.log(`Successfully navigated to ${url}`);
+      await navigateAndWaitForFullLoad(page, url);
+      console.log(`Successfully navigated to ${url} and waited for full load`);
     } catch (navigationError) {
-      console.error('Navigation error:', navigationError);
+      console.error('Navigation or loading error:', navigationError);
       
       // Provide more specific error messages based on the error type
-      let errorMessage = 'Failed to load the website';
+      let errorMessage = 'Failed to load the website completely';
       
       if (navigationError instanceof Error) {
         const errorMsg = navigationError.message.toLowerCase();
         
         if (errorMsg.includes('timeout')) {
-          errorMessage = 'Website took too long to respond (timeout after 30 seconds)';
+          errorMessage = 'Website took too long to respond or load completely (timeout)';
         } else if (errorMsg.includes('net::err_name_not_resolved')) {
           errorMessage = 'Website domain could not be found (DNS resolution failed)';
         } else if (errorMsg.includes('net::err_connection_refused')) {
@@ -196,8 +193,10 @@ export async function inspectWebsite(url: string, options?: {
           errorMessage = 'SSL/TLS connection error';
         } else if (errorMsg.includes('net::err_cert_')) {
           errorMessage = 'SSL certificate error';
+        } else if (errorMsg.includes('evaluation failed')) {
+          errorMessage = 'Website loading failed during content analysis (possibly due to JavaScript errors)';
         } else {
-          errorMessage = `Failed to load the website: ${navigationError.message}`;
+          errorMessage = `Failed to load the website completely: ${navigationError.message}`;
         }
       }
       
@@ -224,25 +223,39 @@ export async function inspectWebsite(url: string, options?: {
         // Dynamically import screenshot service only in Electron environment
         const { screenshotManager, addFontAnnotations } = await import('./screenshotService');
         
+        // Additional wait specifically for screenshot stability
+        console.log('Final wait before screenshot capture...');
+        await page.evaluate(() => {
+          // Ensure page is scrolled to top for consistent screenshots
+          window.scrollTo(0, 0);
+          return new Promise(resolve => setTimeout(resolve, 500));
+        });
+        
         // Get page dimensions
         const dimensions = await page.evaluate(() => ({
           width: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
           height: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
         }));
         
+        console.log(`Page dimensions: ${dimensions.width}x${dimensions.height}`);
+        
         // Take original screenshot
+        console.log('Taking original screenshot...');
         const originalScreenshot = await page.screenshot({ 
           fullPage: true,
           type: 'png'
         });
         
         // Add font annotations
+        console.log('Adding font annotations to page...');
         const annotationCount = await addFontAnnotations(page, { 
           activeFonts, 
           downloadedFonts: processedFonts 
         });
+        console.log(`Added ${annotationCount} font annotations`);
         
         // Take annotated screenshot
+        console.log('Taking annotated screenshot...');
         const annotatedScreenshot = await page.screenshot({ 
           fullPage: true,
           type: 'png'
@@ -299,6 +312,225 @@ export async function inspectWebsite(url: string, options?: {
       console.log('Browser closed');
     }
   }
+}
+
+/**
+ * Enhanced navigation and loading function that waits for the website to fully load
+ * before proceeding with analysis or screenshots
+ */
+async function navigateAndWaitForFullLoad(page: Page, url: string): Promise<void> {
+  console.log('Using aggressive loading approach for fastest inspections...');
+  console.log('Step 1: Initial navigation with networkidle2...');
+  
+  // Step 1: Basic navigation with networkidle2
+  await page.goto(url, { 
+    waitUntil: 'networkidle2',
+    timeout: 30000 
+  });
+  
+    console.log('Step 2: Parallel font loading and animation detection...');
+  
+  // Step 2 & 4: Run font loading and animation detection in parallel
+  await Promise.all([
+    // Font loading check
+    page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        if ('fonts' in document) {
+          // Use document.fonts.ready if available (modern browsers)
+          (document as any).fonts.ready.then(() => {
+            console.log('All fonts loaded via document.fonts.ready');
+            resolve();
+          }).catch(() => {
+            // Fallback if fonts.ready fails
+            console.log('Font loading check failed, continuing...');
+            resolve();
+          });
+        } else {
+          // Fallback for older browsers
+          console.log('document.fonts not available, continuing...');
+          resolve();
+        }
+      });
+    }),
+    
+    // Animation detection check
+    page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        const elementsWithAnimations = Array.from(document.querySelectorAll('*')).filter(el => {
+          const style = window.getComputedStyle(el);
+          return style.animationName !== 'none' || style.transitionProperty !== 'none';
+        });
+        
+        if (elementsWithAnimations.length === 0) {
+          console.log('No animations detected');
+          resolve();
+          return;
+        }
+        
+        console.log(`Found ${elementsWithAnimations.length} elements with animations/transitions`);
+        
+        let completedCount = 0;
+        const totalCount = elementsWithAnimations.length;
+        
+        const checkComplete = () => {
+          completedCount++;
+          if (completedCount >= totalCount) {
+            console.log('All animations/transitions completed');
+            resolve();
+          }
+        };
+        
+        // Set a timeout to avoid waiting forever for animations
+        const timeout = setTimeout(() => {
+          console.log(`Animation timeout after 1s (${completedCount}/${totalCount} completed)`);
+          resolve();
+        }, 1000);
+        
+        elementsWithAnimations.forEach((element) => {
+          element.addEventListener('animationend', checkComplete, { once: true });
+          element.addEventListener('transitionend', checkComplete, { once: true });
+        });
+        
+        // If no animations are actually running, resolve immediately
+        setTimeout(() => {
+          if (completedCount === 0) {
+            console.log('No active animations detected, continuing...');
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 100);
+      });
+    })
+  ]);
+  
+    console.log('Step 3: Parallel media loading and lazy-loading detection...');
+  
+  // Step 3: Run media loading and lazy-loading detection in parallel
+  await Promise.all([
+    // Media loading check
+    page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        const images = Array.from(document.querySelectorAll('img'));
+        const videos = Array.from(document.querySelectorAll('video'));
+        const mediaElements = [...images, ...videos];
+        
+        if (mediaElements.length === 0) {
+          console.log('No media elements found');
+          resolve();
+          return;
+        }
+        
+        let loadedCount = 0;
+        const totalCount = mediaElements.length;
+        
+        const checkComplete = () => {
+          loadedCount++;
+          if (loadedCount >= totalCount) {
+            console.log(`All ${totalCount} media elements loaded`);
+            resolve();
+          }
+        };
+        
+        // Set a timeout to avoid waiting forever (aggressive: 3s)
+        const timeout = setTimeout(() => {
+          console.log(`Media loading timeout after 3s (${loadedCount}/${totalCount} loaded)`);
+          resolve();
+        }, 3000);
+        
+        mediaElements.forEach((element) => {
+          if (element instanceof HTMLImageElement) {
+            if (element.complete) {
+              checkComplete();
+            } else {
+              element.addEventListener('load', checkComplete, { once: true });
+              element.addEventListener('error', checkComplete, { once: true });
+            }
+          } else if (element instanceof HTMLVideoElement) {
+            if (element.readyState >= 2) { // HAVE_CURRENT_DATA
+              checkComplete();
+            } else {
+              element.addEventListener('loadeddata', checkComplete, { once: true });
+              element.addEventListener('error', checkComplete, { once: true });
+            }
+          }
+        });
+        
+        // Clear timeout if all media loads before timeout
+        if (loadedCount >= totalCount) {
+          clearTimeout(timeout);
+        }
+      });
+    }),
+    
+    // Lazy-loading detection check
+    page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        let lastHeight = document.body.scrollHeight;
+        let attempts = 0;
+        const maxAttempts = 1; // Aggressive: only 1 attempt
+        
+        const checkForNewContent = () => {
+          // Scroll to bottom to trigger lazy loading
+          window.scrollTo(0, document.body.scrollHeight);
+          
+          setTimeout(() => {
+            const newHeight = document.body.scrollHeight;
+            attempts++;
+            
+            if (newHeight > lastHeight && attempts < maxAttempts) {
+              console.log(`New content detected, height: ${lastHeight} -> ${newHeight}`);
+              lastHeight = newHeight;
+              checkForNewContent();
+            } else {
+              // Scroll back to top for screenshot
+              window.scrollTo(0, 0);
+              console.log('Lazy loading check completed');
+              resolve();
+            }
+          }, 500); // Aggressive: 500ms instead of 1000ms
+        };
+        
+        checkForNewContent();
+      });
+    })
+  ]);
+  
+  console.log('Step 4: Final wait for page stabilization...');
+  
+  // Step 4: Final wait for page to stabilize
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Step 5: Log loading summary for debugging
+  const loadingSummary = await page.evaluate(() => {
+    const imageCount = document.querySelectorAll('img').length;
+    const videoCount = document.querySelectorAll('video').length;
+    const scriptCount = document.querySelectorAll('script').length;
+    const linkCount = document.querySelectorAll('link').length;
+    const textLength = document.body.innerText?.length || 0;
+    const hasVisibleContent = document.body.offsetHeight > 100;
+    
+    return {
+      imageCount,
+      videoCount,
+      scriptCount,
+      linkCount,
+      textLength,
+      hasVisibleContent,
+      bodyHeight: document.body.offsetHeight,
+      pageHeight: Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)
+    };
+  });
+  
+  console.log('Enhanced page loading completed. Summary:', {
+    images: loadingSummary.imageCount,
+    videos: loadingSummary.videoCount,
+    scripts: loadingSummary.scriptCount,
+    stylesheets: loadingSummary.linkCount,
+    textLength: loadingSummary.textLength,
+    hasVisibleContent: loadingSummary.hasVisibleContent,
+    bodyHeight: loadingSummary.bodyHeight,
+    pageHeight: loadingSummary.pageHeight
+  });
 }
 
 // Helper function to process downloaded fonts for consistency

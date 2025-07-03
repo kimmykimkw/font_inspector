@@ -640,6 +640,11 @@ class ElectronApp {
     // Set up auto-updater event listeners
     this.setupAutoUpdaterListeners();
     
+    // Disable auto-update checks since we don't have a proper Mac app license
+    console.log('Auto-updates are temporarily disabled');
+    
+    // Commented out auto-update checks
+    /*
     // Check for updates when app is ready
     app.whenReady().then(() => {
       // Wait a bit after startup to check for updates
@@ -652,6 +657,7 @@ class ElectronApp {
     setInterval(() => {
       autoUpdater.checkForUpdatesAndNotify();
     }, 60 * 60 * 1000);
+    */
   }
 
   private async checkForUpdatesManually(): Promise<void> {
@@ -689,8 +695,6 @@ class ElectronApp {
       this.isManualUpdateCheck = false; // Reset manual check flag
     }
   }
-
-
 
   private setupAutoUpdaterListeners(): void {
     autoUpdater.on('update-available', (info) => {

@@ -19,6 +19,12 @@ build/
 .env.test.local
 .env.production.local
 
+# Code signing certificates
+*.p12
+*.pem
+*.key
+certificate.*
+
 # Firebase
 firebase-service-account.json
 .firebaserc
