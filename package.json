@@ -81,8 +81,8 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@stagewise-plugins/react": "^0.4.9",
-    "@stagewise/toolbar-next": "^0.4.9",
+    "@stagewise-plugins/react": "^0.6.0",
+    "@stagewise/toolbar-next": "^0.6.0",
     "@tailwindcss/postcss": "^4",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
