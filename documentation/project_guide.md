@@ -28,8 +28,15 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 
 ### 1. Home Page
 - **Welcome Banner**: Brief introduction to Font Inspector with personalized user greeting.
-- **Input Form**: URL input field that accepts a single website URL with a submit button. Form includes real-time permission checking and is disabled when user lacks permission or exceeds limits.
-- **Project Input Form**: Form to create a new project with multiple website URLs (Batch) with a submit button. Form includes permission validation and usage limit checking.
+- **Single URL Inspection Form**: 
+  - URL input field that accepts a single website URL with a submit button
+  - **Multi-Page Selection**: Radio button options to choose inspection scope:
+    - **1 page**: Inspect only the provided URL (traditional single-page behavior)
+    - **5 pages**: Auto-discover and inspect 5 relevant pages from the website
+    - **10 pages**: Auto-discover and inspect 10 relevant pages from the website
+  - **Auto-Discovery Explanation**: Clear indication that multi-page options will automatically find relevant pages and create a project
+  - Form includes real-time permission checking and is disabled when user lacks permission or exceeds limits
+- **Project Input Form**: Form to create a new project with multiple website URLs (Manual Batch) with a submit button. Form includes permission validation and usage limit checking.
 - **Permission Status**: Visual indicators showing current monthly usage and remaining limits.
 - **Inspection Queue**: List of pending website inspections for the authenticated user.
 - **Recent Inspections**: List of the user's previously inspected URLs and projects.
@@ -170,6 +177,11 @@ The admin system is a separate Next.js web application that provides comprehensi
 ### Backend:
 - **Environment**: Node.js (running as separate process in Electron)
 - **Inspection Engine**: puppeteer-core (with explicit Chrome path management)
+- **Multi-Page Discovery Engine**: Automated page discovery system with multiple strategies:
+  - **Sitemap Parsing**: Automatic sitemap.xml detection and parsing for structured page discovery
+  - **Internal Link Crawling**: DOM analysis to extract and prioritize internal website links
+  - **Common Path Detection**: Intelligent checking of standard website paths (about, contact, services, etc.)
+  - **Priority Scoring System**: Advanced algorithm for ranking discovered pages by relevance and importance
 - **Screenshot System**: Integrated screenshot capture with dual-generation (original + annotated)
 - **Font Annotation Engine**: Smart annotation system with DOM manipulation and visual overlay generation
 - **Local File Management**: File system operations for screenshot storage and retrieval via Electron IPC
@@ -237,8 +249,10 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Permission-Aware Interface**: Form components automatically disabled when user lacks permissions
 - **Real-time Feedback**: Clear visual indicators for permission status and usage limits
 - **Versatile Input Options**: 
-  - Single URL input for individual website inspections with permission validation
-  - Multi-URL input for creating projects with multiple websites and limit checking
+  - **Single URL with Multi-Page Discovery**: URL input with radio button selection for inspection scope (1, 5, or 10 pages) with auto-discovery capabilities
+  - **Manual Multi-URL Input**: Traditional project creation form for manually entering multiple website URLs
+  - **Smart Project Creation**: Multi-page inspections automatically generate projects with descriptive names
+  - **Permission Integration**: All input options include real-time permission validation and usage limit checking
 - **Real-Time Feedback**: Loading indicators and error messages for each inspection request
 - **User-Specific Inspection Queue Management**: Handle and display the status of the authenticated user's multiple, concurrent website inspections
 - **Personal Project Management**: Create, view, and manage the user's projects containing multiple website inspections
@@ -248,6 +262,15 @@ The admin system is a separate Next.js web application that provides comprehensi
 ### 6. Enhanced Website Inspection Module
 - **Headless Browser Execution**: Use puppeteer-core with automatic Chrome detection to load target URLs
 - **Advanced Chrome Management**: Intelligent Chrome/Chromium path detection and fallback strategies
+- **Multi-Page Discovery System**: Comprehensive page discovery for automated website analysis:
+  - **Intelligent Page Detection**: Automatically discovers 5-10 relevant pages from any website
+  - **Sitemap Integration**: Parses sitemap.xml files for structured page discovery with priority ranking
+  - **Link Analysis**: Crawls main page to extract and evaluate internal links with content-based scoring
+  - **Common Path Detection**: Checks standard website paths (about, contact, services, blog, etc.) with HEAD requests
+  - **Priority Algorithm**: Advanced scoring system that ranks pages by importance, content type, and relevance
+  - **URL Normalization**: Smart URL normalization that removes tracking parameters and hash fragments
+  - **Project Auto-Generation**: Automatically creates projects for multi-page inspections with descriptive naming
+  - **Fallback Handling**: Graceful degradation to single-page inspection if discovery fails
 - **Network Request Interception**: Filter and log requests for font files (.woff, .woff2, .ttf, etc.)
 - **CSS Parsing**: Extract @font-face rules to identify intended fonts
 - **Font Usage Detection**: Evaluate computed styles in the DOM to determine actively used fonts
@@ -368,7 +391,22 @@ The admin system is a separate Next.js web application that provides comprehensi
 
 ## Recent Major Updates
 
-### Font Metadata Extraction Implementation (Latest)
+### Multi-Page Inspection Feature (Latest)
+- **Automated Page Discovery**: Implemented comprehensive multi-page inspection capability allowing users to analyze 5-10 pages from any website automatically
+- **Intelligent Discovery Engine**: Advanced page discovery system using multiple strategies:
+  - **Sitemap Integration**: Automatic sitemap.xml parsing with priority-based page ranking
+  - **Internal Link Analysis**: DOM crawling to extract and evaluate internal links with content-based scoring
+  - **Common Path Detection**: Smart checking of standard website paths (about, contact, services, etc.) using HEAD requests
+  - **Priority Scoring Algorithm**: Advanced algorithm that ranks pages by relevance, content type, and importance
+- **Smart URL Normalization**: Intelligent URL processing that removes tracking parameters, hash fragments, and duplicate URLs
+- **Seamless Project Creation**: Multi-page inspections automatically generate projects with descriptive names based on the website domain
+- **Enhanced User Interface**: Added radio button selection in URL input form for choosing inspection scope (1, 5, or 10 pages)
+- **Fallback Handling**: Graceful degradation to single-page inspection if page discovery fails, ensuring reliability
+- **Performance Optimization**: Concurrent page processing with proper error handling and timeout management
+- **API Integration**: New `/api/discover-pages` endpoint with authentication, rate limiting, and comprehensive error handling
+- **User Experience Enhancement**: Clear visual indicators and explanatory text for multi-page options with auto-discovery capabilities
+
+### Font Metadata Extraction Implementation
 - **Advanced Font Compliance Features**: Implemented comprehensive font metadata extraction for legal compliance auditing
 - **Font Parsing Libraries**: Integrated opentype.js and fontkit packages for parsing font file metadata
 - **Comprehensive Metadata Extraction**: Extract foundry information, copyright notices, licensing terms, embedding permissions, version data, designer information, and creation dates

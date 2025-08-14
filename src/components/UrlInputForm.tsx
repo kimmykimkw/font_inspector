@@ -11,12 +11,15 @@ import { Globe, Plus, X, Search, AlertCircle, Loader2 } from "lucide-react";
 
 export function UrlInputForm() {
   const [urls, setUrls] = useState<string[]>([""]);
+  const [pageCount, setPageCount] = useState<1 | 5 | 10>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { addToQueue } = useInspection();
   const permissions = useUserPermissions();
 
   const addUrlField = () => {
     setUrls([...urls, ""]);
+    // Reset page count to 1 when adding multiple URLs
+    setPageCount(1);
   };
 
   const removeUrlField = (index: number) => {
@@ -53,16 +56,24 @@ export function UrlInputForm() {
     setIsSubmitting(true);
     
     try {
-      // For single URL, redirect to analyze page
+      // Handle different page count scenarios
       if (validUrls.length === 1) {
         const url = encodeURIComponent(validUrls[0]);
-        window.location.href = `/analyze?url=${url}&type=single`;
+        
+        if (pageCount === 1) {
+          // Single page inspection
+          window.location.href = `/analyze?url=${url}&type=single`;
+        } else {
+          // Multi-page inspection - redirect to analyze page with page discovery
+          window.location.href = `/analyze?url=${url}&type=multi-page&pageCount=${pageCount}`;
+        }
       } else {
         // For multiple URLs, still use the old queue system for now
         await addToQueue(validUrls);
         toast.success(`Added ${validUrls.length} URLs to inspection queue`);
         // Reset the form to a single empty URL input
         setUrls([""]);
+        setPageCount(1);
       }
     } catch (error) {
       toast.error("Failed to submit URLs");
@@ -84,6 +95,64 @@ export function UrlInputForm() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Page Count Selection - only show for single URL */}
+          {urls.length === 1 && (
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-neutral-700">
+                How many pages to inspect?
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pageCount"
+                    value="1"
+                    checked={pageCount === 1}
+                    onChange={() => setPageCount(1)}
+                    className="w-4 h-4 text-blue-600 bg-neutral-100 border-neutral-300 focus:ring-blue-500 focus:ring-2"
+                    disabled={!permissions.canCreateInspection && !permissions.isLoading}
+                  />
+                  <span className="text-sm text-neutral-700">
+                    1 page <span className="text-neutral-500">(this page only)</span>
+                  </span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pageCount"
+                    value="5"
+                    checked={pageCount === 5}
+                    onChange={() => setPageCount(5)}
+                    className="w-4 h-4 text-blue-600 bg-neutral-100 border-neutral-300 focus:ring-blue-500 focus:ring-2"
+                    disabled={!permissions.canCreateInspection && !permissions.isLoading}
+                  />
+                  <span className="text-sm text-neutral-700">
+                    5 pages <span className="text-neutral-500">(auto-discover)</span>
+                  </span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pageCount"
+                    value="10"
+                    checked={pageCount === 10}
+                    onChange={() => setPageCount(10)}
+                    className="w-4 h-4 text-blue-600 bg-neutral-100 border-neutral-300 focus:ring-blue-500 focus:ring-2"
+                    disabled={!permissions.canCreateInspection && !permissions.isLoading}
+                  />
+                  <span className="text-sm text-neutral-700">
+                    10 pages <span className="text-neutral-500">(auto-discover)</span>
+                  </span>
+                </label>
+              </div>
+              {pageCount > 1 && (
+                <p className="text-xs text-neutral-600 bg-blue-50 p-2 rounded">
+                  <AlertCircle className="inline w-3 h-3 mr-1" />
+                  We'll automatically find {pageCount} relevant pages from the website and create a project for analysis.
+                </p>
+              )}
+            </div>
+          )}
           {urls.map((url, index) => (
             <div key={index} className="flex items-center space-x-2">
               <div className="relative flex-1">

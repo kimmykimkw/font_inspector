@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useCallback, useRef, useMemo } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AnalysisProgressBar } from '@/components/AnalysisProgressBar';
 import { useInspection } from '@/contexts/InspectionContext';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, authenticatedFetch } from '@/lib/api-client';
 import { AuthWrapper } from '@/components/auth/AuthWrapper';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -22,6 +22,9 @@ function AnalyzeContent() {
     resultId: null as string | null
   });
   
+  // Track discovered URLs for multi-page inspections
+  const [discoveredUrls, setDiscoveredUrls] = useState<string[]>([]);
+  
   // Prevent duplicate analysis starts due to React Strict Mode
   const analysisStartedRef = useRef(false);
   
@@ -30,6 +33,8 @@ function AnalyzeContent() {
   const projectName = searchParams.get('projectName');
   const urls = useMemo(() => searchParams.get('urls')?.split(',') || [], [searchParams]);
   const isProject = searchParams.get('type') === 'project';
+  const isMultiPage = searchParams.get('type') === 'multi-page';
+  const pageCount = searchParams.get('pageCount') ? parseInt(searchParams.get('pageCount')!) : 1;
 
   // Debug URL parsing
   console.log('URL Parameters:', {
@@ -38,14 +43,17 @@ function AnalyzeContent() {
     urls,
     urlsLength: urls.length,
     isProject,
+    isMultiPage,
+    pageCount,
     searchParamsString: searchParams.toString()
   });
 
   // Calculate progress from queue for this project
   const projectUrls = useMemo(() => {
-    if (!isProject) return url ? [url] : [];
-    return urls;
-  }, [isProject, url, urls]);
+    if (isProject) return urls;
+    if (isMultiPage) return discoveredUrls.length > 0 ? discoveredUrls : [];
+    return url ? [url] : [];
+  }, [isProject, isMultiPage, url, urls, discoveredUrls]);
 
   console.log('Project URLs calculated:', {
     projectUrls,
@@ -183,6 +191,59 @@ function AnalyzeContent() {
         await addToQueue(urls, projectName);
         // Progress will be tracked via queue updates
         
+      } else if (isMultiPage && url && pageCount > 1) {
+        // Multi-page inspection - discover pages first
+        console.log(`Starting page discovery for ${url} (${pageCount} pages)`);
+        
+        try {
+          // Call page discovery API with authentication
+          const response = await authenticatedFetch('/api/discover-pages', {
+            method: 'POST',
+            body: JSON.stringify({
+              url: url,
+              pageCount: pageCount
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Page discovery failed: ${response.statusText}`);
+          }
+          
+          const discoveryResult = await response.json();
+          console.log('Page discovery result:', discoveryResult);
+          
+          if (!discoveryResult.success || !discoveryResult.pages || discoveryResult.pages.length === 0) {
+            throw new Error('No pages discovered');
+          }
+          
+          // Extract URLs from discovered pages and ensure uniqueness
+          const discoveredPageUrls = [...new Set(discoveryResult.pages.map((page: any) => page.url))];
+          
+          // Limit to requested page count (in case discovery found more than requested)
+          const finalUrls = discoveredPageUrls.slice(0, pageCount);
+          
+          // Update state with discovered URLs for progress tracking
+          setDiscoveredUrls(finalUrls);
+          
+          // Create a project name based on the domain
+          const domain = new URL(url.startsWith('http') ? url : `https://${url}`).hostname;
+          const autoProjectName = `Website Analysis: ${domain}`;
+          
+          console.log(`Creating auto-project "${autoProjectName}" with ${finalUrls.length} pages (requested: ${pageCount})`);
+          
+          // Use the inspection context's addToQueue method to handle project creation
+          await addToQueue(finalUrls, autoProjectName);
+          // Progress will be tracked via queue updates
+          
+        } catch (discoveryError) {
+          console.error('Page discovery failed:', discoveryError);
+          toast.error(`Page discovery failed: ${discoveryError instanceof Error ? discoveryError.message : 'Unknown error'}`);
+          
+          // Fallback to single page inspection
+          console.log('Falling back to single page inspection');
+          await addToQueue([url]);
+        }
+        
       } else if (url) {
         // Start single URL analysis
         await addToQueue([url]);
@@ -196,21 +257,27 @@ function AnalyzeContent() {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       toast.error(`Analysis failed: ${errorMessage}`);
     }
-  }, [url, projectName, urls, isProject, addToQueue, analysisState.status]);
+  }, [url, projectName, urls, isProject, isMultiPage, pageCount, addToQueue, analysisState.status]);
 
   // Initialize analysis
   useEffect(() => {
-    if (!authLoading && user && !isInitialized && !analysisStartedRef.current && (url || (isProject && projectName && urls.length > 0))) {
+    const canStartAnalysis = url && (
+      (!isProject && !isMultiPage) || // Single page
+      (isProject && projectName && urls.length > 0) || // Regular project
+      (isMultiPage && pageCount > 0) // Multi-page discovery
+    );
+    
+    if (!authLoading && user && !isInitialized && !analysisStartedRef.current && canStartAnalysis) {
       setIsInitialized(true);
       analysisStartedRef.current = true;
       startAnalysis();
     }
-  }, [url, projectName, urls, isProject, isInitialized, authLoading, user, startAnalysis]);
+  }, [url, projectName, urls, isProject, isMultiPage, pageCount, isInitialized, authLoading, user, startAnalysis]);
 
   // Handle completion and redirect
   const handleAnalysisComplete = useCallback((resultId: string) => {
-    if (isProject) {
-      // For projects, we already have redirection logic in InspectionContext
+    if (isProject || isMultiPage) {
+      // For projects and multi-page inspections, we already have redirection logic in InspectionContext
       // The project redirection happens after saving the project to the database
       return;
     }
@@ -228,11 +295,11 @@ function AnalyzeContent() {
         router.push('/history');
       }
     }
-  }, [isProject, router, currentQueueItems]);
+  }, [isProject, isMultiPage, router, currentQueueItems]);
 
   // Backup redirection mechanism - directly redirect when analysis completes
   useEffect(() => {
-    if (analysisState.status === 'completed' && !isProject) {
+    if (analysisState.status === 'completed' && !isProject && !isMultiPage) {
       const timer = setTimeout(() => {
         if (analysisState.resultId) {
           router.push(`/results/${analysisState.resultId}`);
@@ -249,7 +316,7 @@ function AnalyzeContent() {
       
       return () => clearTimeout(timer);
     }
-  }, [analysisState.status, analysisState.resultId, isProject, router, currentQueueItems]);
+  }, [analysisState.status, analysisState.resultId, isProject, isMultiPage, router, currentQueueItems]);
 
   // Show loading state while authentication is being checked
   if (authLoading) {
@@ -269,24 +336,30 @@ function AnalyzeContent() {
   }
 
   // Redirect back if no valid parameters
-  if (!url && (!isProject || !projectName || urls.length === 0)) {
+  if (!url && (!isProject || !projectName || urls.length === 0) && !isMultiPage) {
     router.push('/');
     return null;
   }
 
+  // Get the first processing inspection for timing data
+  const firstProcessingInspection = currentQueueItems.find(item => 
+    item.status === 'processing'
+  );
+
   return (
     <AnalysisProgressBar
       url={url || undefined}
-      projectName={projectName || undefined}
+      projectName={projectName || (isMultiPage ? `Website Analysis: ${url ? new URL(url.startsWith('http') ? url : `https://${url}`).hostname : ''}` : undefined)}
       progress={realProgress}
       status={analysisState.status}
-      isProject={isProject}
+      isProject={isProject || isMultiPage}
       onComplete={handleAnalysisComplete}
       resultId={analysisState.resultId || undefined}
-      totalWebsites={isProject ? totalWebsites : undefined}
-      completedWebsites={isProject ? completedWebsites : undefined}
-      hasFailures={isProject ? hasFailures : undefined}
+      totalWebsites={(isProject || isMultiPage) ? totalWebsites : undefined}
+      completedWebsites={(isProject || isMultiPage) ? completedWebsites : undefined}
+      hasFailures={(isProject || isMultiPage) ? hasFailures : undefined}
       errorMessage={errorMessage}
+      startTime={firstProcessingInspection?.startTime}
     />
   );
 }

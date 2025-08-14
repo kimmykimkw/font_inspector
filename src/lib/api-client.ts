@@ -60,11 +60,11 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
  * API helper functions for common operations
  */
 export const apiClient = {
-  // Fetch inspection history
-  async getHistory(): Promise<any[]> {
+  // Fetch inspection history with pagination
+  async getHistory(page = 1, limit = 50): Promise<{ data: any[], pagination: any }> {
     try {
-      logger.debug('Fetching history...');
-      const response = await authenticatedFetch('/api/history');
+      logger.debug(`Fetching history page ${page}...`);
+      const response = await authenticatedFetch(`/api/history?page=${page}&limit=${limit}`);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -78,16 +78,70 @@ export const apiClient = {
         throw new Error(errorData.error || `Failed to fetch history (${response.status})`);
       }
       
-      const data = await response.json();
-      logger.info(`Fetched ${data.length} history items`);
-      return data;
+      const result = await response.json();
+      logger.info(`Fetched ${result.data?.length || 0} history items (page ${page})`);
+      return result;
     } catch (error) {
       logger.error('Error in getHistory:', error);
       throw error;
     }
   },
 
-  // Fetch projects
+  // Search inspections
+  async searchInspections(searchTerm: string, page = 1, limit = 50): Promise<{ data: any[], pagination: any, isSearch: boolean }> {
+    try {
+      logger.debug(`Searching inspections for "${searchTerm}" (page ${page})...`);
+      const response = await authenticatedFetch(`/api/history?search=${encodeURIComponent(searchTerm)}&page=${page}&limit=${limit}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText };
+        }
+        logger.error('Search inspections failed:', response.status, errorData);
+        throw new Error(errorData.error || `Failed to search inspections (${response.status})`);
+      }
+      
+      const result = await response.json();
+      logger.info(`Found ${result.data?.length || 0} matching inspections (page ${page})`);
+      return result;
+    } catch (error) {
+      logger.error('Error in searchInspections:', error);
+      throw error;
+    }
+  },
+
+  // Fetch total counts
+  async getTotalCounts(): Promise<{ inspections: number, projects: number }> {
+    try {
+      logger.debug('Fetching total counts...');
+      const response = await authenticatedFetch('/api/history/counts');
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText };
+        }
+        logger.error('Total counts fetch failed:', response.status, errorData);
+        throw new Error(errorData.error || `Failed to fetch total counts (${response.status})`);
+      }
+      
+      const data = await response.json();
+      logger.info(`Fetched total counts - Inspections: ${data.inspections}, Projects: ${data.projects}`);
+      return data;
+    } catch (error) {
+      logger.error('Error in getTotalCounts:', error);
+      throw error;
+    }
+  },
+
+  // Fetch projects (legacy method - returns all projects)
   async getProjects(): Promise<any[]> {
     try {
       const response = await authenticatedFetch('/api/projects');
@@ -108,6 +162,75 @@ export const apiClient = {
       return data;
     } catch (error) {
       logger.error('Error in getProjects:', error);
+      throw error;
+    }
+  },
+
+  // Fetch projects with pagination
+  async getProjectsPaginated(page = 1, limit = 50): Promise<{ data: any[], pagination: any }> {
+    try {
+      logger.debug(`Fetching projects page ${page}...`);
+      const response = await authenticatedFetch(`/api/projects?page=${page}&limit=${limit}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText };
+        }
+        logger.error('Projects fetch failed:', response.status, errorData);
+        throw new Error(errorData.error || `Failed to fetch projects (${response.status})`);
+      }
+      
+      const result = await response.json();
+      
+      // Handle both paginated and legacy response formats
+      if (result.data && result.pagination) {
+        logger.info(`Fetched ${result.data.length} projects (page ${page})`);
+        return result;
+      } else {
+        // Legacy format - all projects returned
+        logger.info(`Fetched ${result.length} projects (all)`);
+        return {
+          data: result,
+          pagination: {
+            page: 1,
+            limit: result.length,
+            hasMore: false
+          }
+        };
+      }
+    } catch (error) {
+      logger.error('Error in getProjectsPaginated:', error);
+      throw error;
+    }
+  },
+
+  // Search projects
+  async searchProjects(searchTerm: string, page = 1, limit = 50): Promise<{ data: any[], pagination: any, isSearch: boolean }> {
+    try {
+      logger.debug(`Searching projects for "${searchTerm}" (page ${page})...`);
+      const response = await authenticatedFetch(`/api/projects?search=${encodeURIComponent(searchTerm)}&page=${page}&limit=${limit}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText };
+        }
+        logger.error('Search projects failed:', response.status, errorData);
+        throw new Error(errorData.error || `Failed to search projects (${response.status})`);
+      }
+      
+      const result = await response.json();
+      logger.info(`Found ${result.data?.length || 0} matching projects (page ${page})`);
+      return result;
+    } catch (error) {
+      logger.error('Error in searchProjects:', error);
       throw error;
     }
   },
@@ -226,6 +349,37 @@ export const apiClient = {
       }
     } catch (error) {
       logger.error('Error in deleteInspection:', error);
+      throw error;
+    }
+  },
+
+  // Discover pages from a website
+  async discoverPages(url: string, pageCount: number) {
+    try {
+      logger.info(`Discovering ${pageCount} pages from ${url}`);
+      
+      const response = await authenticatedFetch('/api/discover-pages', {
+        method: 'POST',
+        body: JSON.stringify({
+          url,
+          pageCount
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Page discovery failed');
+      }
+
+      logger.info(`Successfully discovered ${data.pages?.length || 0} pages`);
+      return data;
+    } catch (error) {
+      logger.error('Error in discoverPages:', error);
       throw error;
     }
   },
