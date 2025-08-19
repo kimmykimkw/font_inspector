@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { CalendarIcon, FolderIcon, ExternalLinkIcon, TrashIcon, GlobeIcon, DownloadIcon, TypeIcon } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, authenticatedFetch } from "@/lib/api-client";
 import { useAuth } from "@/contexts/AuthContext";
 import { auth } from "@/lib/firebase-client";
 
@@ -49,6 +49,8 @@ function HistoryPageContent() {
   const searchParams = useSearchParams();
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [totalCounts, setTotalCounts] = useState<{ inspections: number; projects: number }>({ inspections: 0, projects: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -56,7 +58,42 @@ function HistoryPageContent() {
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || "inspections");
   const [itemToDelete, setItemToDelete] = useState<{ id: string; type: 'inspection' | 'project' } | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<{inspections: Inspection[], projects: Project[]}>({inspections: [], projects: []});
   const itemsPerPage = 15; // Increased since items are more compact now
+
+  // Function to fetch inspections for a specific page
+  const fetchInspectionsPage = async (page: number) => {
+    try {
+      setLoading(true);
+      console.log(`Frontend: Fetching inspections page ${page}`);
+      const inspectionResult = await apiClient.getHistory(page, 50);
+      // Don't filter out project inspections here - show ALL inspections
+      setInspections(inspectionResult.data);
+      console.log(`Frontend: Loaded ${inspectionResult.data.length} inspections for page ${page}`);
+    } catch (error) {
+      console.error(`Frontend: Error fetching page ${page}:`, error);
+      setError("Failed to load more inspections");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Function to fetch projects for a specific page
+  const fetchProjectsPage = async (page: number) => {
+    try {
+      setProjectsLoading(true);
+      console.log(`Frontend: Fetching projects page ${page}`);
+      const projectResult = await apiClient.getProjectsPaginated(page, 50);
+      setProjects(projectResult.data);
+      console.log(`Frontend: Loaded ${projectResult.data.length} projects for page ${page}`);
+    } catch (error) {
+      console.error(`Frontend: Error fetching projects page ${page}:`, error);
+      setError("Failed to load more projects");
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
 
   // Format date in a user-friendly way
   const formatDate = (dateString: string) => {
@@ -77,7 +114,7 @@ function HistoryPageContent() {
     }
   };
 
-  // Format date in a compact way for the list view
+  // Format date in a compact way for the list view with time
   const formatCompactDate = (dateString: string) => {
     if (!dateString) return "Unknown";
     
@@ -87,16 +124,23 @@ function HistoryPageContent() {
       const diffTime = Math.abs(now.getTime() - date.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
-      if (diffDays === 1) return "Today";
-      if (diffDays === 2) return "Yesterday";
-      if (diffDays <= 7) return `${diffDays - 1}d ago`;
-      if (diffDays <= 30) return `${Math.floor(diffDays / 7)}w ago`;
+      // Always show time for recent items
+      const timeString = date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      });
       
+      if (diffDays === 1) return `Today at ${timeString}`;
+      if (diffDays === 2) return `Yesterday at ${timeString}`;
+      if (diffDays <= 7) return `${diffDays - 1}d ago at ${timeString}`;
+      
+      // For older items, show full date with time
       return date.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined
-      });
+      }) + ` at ${timeString}`;
     } catch (e) {
       return "Invalid";
     }
@@ -127,21 +171,25 @@ function HistoryPageContent() {
         console.log("Frontend: User authenticated, proceeding with data fetch");
         
         try {
-          // Fetch inspections using authenticated API client
+          // Fetch total counts first
+          console.log("Frontend: Fetching total counts");
+          const counts = await apiClient.getTotalCounts();
+          setTotalCounts(counts);
+          
+          // Fetch inspections using authenticated API client (first page only)
           console.log("Frontend: Fetching inspection history");
-          const inspectionData = await apiClient.getHistory();
+          const inspectionResult = await apiClient.getHistory(1, 50);
           
           // Fetch projects using authenticated API client
           console.log("Frontend: Fetching project history");
           const projectData = await apiClient.getProjects();
           
-          console.log("Frontend: Fetched inspections:", inspectionData.length);
+          console.log("Frontend: Fetched inspections:", inspectionResult.data.length);
           console.log("Frontend: Fetched projects:", projectData.length);
+          console.log("Frontend: Total counts:", counts);
           
-          // Filter out inspections that are part of projects to avoid duplication
-          const standaloneInspections = inspectionData.filter((inspection: Inspection) => !inspection.projectId);
-          
-          setInspections(standaloneInspections);
+          // Show ALL inspections (including those in projects) in the Individual Inspections tab
+          setInspections(inspectionResult.data);
           setProjects(projectData);
         } catch (apiClientError) {
           console.error("Frontend: API client failed, trying direct fetch...", apiClientError);
@@ -217,30 +265,80 @@ function HistoryPageContent() {
     fetchData();
   }, [user, authLoading]); // Depend on both user and authLoading
 
-  // Filter and sort inspections or projects based on search term and active tab
-  const filteredItems = activeTab === "inspections" 
-    ? inspections
-        .filter((inspection) => inspection.url.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a, b) => {
-          // Sort by most recent first - use createdAt or timestamp
-          const dateA = new Date(a.createdAt || a.timestamp).getTime();
-          const dateB = new Date(b.createdAt || b.timestamp).getTime();
-          return dateB - dateA; // Descending order (most recent first)
-        })
-    : projects
-        .filter((project) => project.name.toLowerCase().includes(searchTerm.toLowerCase()))
-        .sort((a, b) => {
-          // Sort by most recent updatedAt first, then by createdAt
-          const dateA = new Date(a.updatedAt || a.createdAt).getTime();
-          const dateB = new Date(b.updatedAt || b.createdAt).getTime();
-          return dateB - dateA; // Descending order (most recent first)
-        });
+  // Handle page changes for both inspections and projects (only when user explicitly changes page)
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    
+    // Only fetch new data if not searching (search results are handled client-side)
+    if (!searchTerm.trim()) {
+      if (activeTab === "inspections") {
+        fetchInspectionsPage(page);
+      } else if (activeTab === "projects") {
+        fetchProjectsPage(page);
+      }
+    }
+  };
 
-  // Paginate items
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredItems.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+  // Reset to page 1 when switching tabs
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
+
+  // Debounced search effect
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (searchTerm.trim()) {
+        performSearch(searchTerm.trim());
+      } else {
+        // Clear search results when search term is empty
+        setSearchResults({inspections: [], projects: []});
+        setCurrentPage(1);
+      }
+    }, 300);
+    
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm, activeTab]);
+
+  // Function to perform database search
+  const performSearch = async (term: string) => {
+    try {
+      setIsSearching(true);
+      setCurrentPage(1); // Reset to first page for new search
+      
+      if (activeTab === "inspections") {
+        const results = await apiClient.searchInspections(term, 1, 1000); // Get more results for search
+        setSearchResults(prev => ({...prev, inspections: results.data}));
+      } else {
+        const results = await apiClient.searchProjects(term, 1, 1000); // Get more results for search
+        setSearchResults(prev => ({...prev, projects: results.data}));
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      toast.error('Failed to search records');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Use search results if searching, otherwise use regular data
+  const currentItems = searchTerm.trim() 
+    ? (activeTab === "inspections" ? searchResults.inspections : searchResults.projects)
+    : (activeTab === "inspections" ? inspections : projects);
+
+  // Calculate pagination - for search results, we use client-side pagination since search returns all matches
+  let totalPages;
+  
+  if (searchTerm.trim()) {
+    // For search results: use length of search results
+    totalPages = Math.ceil(currentItems.length / itemsPerPage);
+  } else {
+    // For regular pagination: use server-side counts
+    if (activeTab === "inspections") {
+      totalPages = Math.ceil(totalCounts.inspections / 50); // 50 inspections per API page
+    } else {
+      totalPages = Math.ceil(totalCounts.projects / 50); // 50 projects per API page
+    }
+  }
 
   // Helper function to get inspection count for a project
   const getInspectionCount = (project: Project) => {
@@ -250,6 +348,18 @@ function HistoryPageContent() {
       return project.inspectionIds.length;
     }
     return 0;
+  };
+
+  // Function to refresh total counts
+  const refreshTotalCounts = async () => {
+    try {
+      console.log("Frontend: Refreshing total counts after deletion");
+      const counts = await apiClient.getTotalCounts();
+      setTotalCounts(counts);
+      console.log("Frontend: Updated counts:", counts);
+    } catch (error) {
+      console.error("Frontend: Error refreshing counts:", error);
+    }
   };
 
   // Delete handler for inspections and projects
@@ -265,10 +375,12 @@ function HistoryPageContent() {
         await apiClient.deleteInspection(id);
         // Remove the deleted item from state
         setInspections(prev => prev.filter(item => item._id !== id));
+        // Refresh total counts
+        await refreshTotalCounts();
         toast.success("Inspection deleted successfully");
       } else {
-        // For projects, we need to make a direct authenticated fetch since it's not in apiClient yet
-        const response = await fetch(`/api/projects/${id}`, {
+        // For projects, use authenticated fetch
+        const response = await authenticatedFetch(`/api/projects/${id}`, {
           method: 'DELETE'
         });
         
@@ -277,8 +389,17 @@ function HistoryPageContent() {
           throw new Error(errorData.error || `Failed to delete ${type}`);
         }
         
-        // Remove the deleted item from state
+        // Remove the deleted project from state
         setProjects(prev => prev.filter(item => item._id !== id));
+        // Also refresh the inspections list to remove any that were deleted with the project
+        try {
+          const inspectionResult = await apiClient.getHistory(1, 50);
+          setInspections(inspectionResult.data);
+        } catch (inspectionRefreshError) {
+          console.error("Frontend: Error refreshing inspections after project deletion:", inspectionRefreshError);
+        }
+        // Refresh total counts (important for project deletion since it also deletes inspections)
+        await refreshTotalCounts();
         toast.success("Project and all associated inspections deleted successfully");
       }
       
@@ -319,17 +440,17 @@ function HistoryPageContent() {
               <TabsList className="mb-2 sm:mb-0">
                 <TabsTrigger value="inspections" className="text-sm">
                   Individual Inspections
-                  {inspections.length > 0 && (
+                  {totalCounts.inspections > 0 && (
                     <span className="ml-2 bg-muted text-muted-foreground text-xs px-2 py-0.5 rounded-full">
-                      {inspections.length}
+                      {totalCounts.inspections}
                     </span>
                   )}
                 </TabsTrigger>
                 <TabsTrigger value="projects" className="text-sm">
                   Projects
-                  {projects.length > 0 && (
+                  {totalCounts.projects > 0 && (
                     <span className="ml-2 bg-muted text-muted-foreground text-xs px-2 py-0.5 rounded-full">
-                      {projects.length}
+                      {totalCounts.projects}
                     </span>
                   )}
                 </TabsTrigger>
@@ -360,7 +481,7 @@ function HistoryPageContent() {
             <TabsContent value="inspections" className="mt-0">
               {/* Individual Inspections Content */}
               <div className="space-y-2">
-                {loading ? (
+                {(loading || isSearching) ? (
                   // Loading skeletons - more compact
                   Array.from({ length: 8 }).map((_, index) => (
                     <div key={index} className="border rounded-lg p-3 bg-white">
@@ -379,7 +500,11 @@ function HistoryPageContent() {
                     </div>
                   ))
                 ) : activeTab === "inspections" && currentItems.length > 0 ? (
-                  currentItems.map((item) => {
+                  // Apply client-side pagination for search results
+                  currentItems
+                    .slice(searchTerm.trim() ? (currentPage - 1) * itemsPerPage : 0, 
+                           searchTerm.trim() ? currentPage * itemsPerPage : currentItems.length)
+                    .map((item) => {
                     const inspection = item as Inspection;
                     return (
                       <Link key={inspection._id} href={`/results/${inspection._id}`}>
@@ -388,10 +513,18 @@ function HistoryPageContent() {
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <GlobeIcon className="h-4 w-4 text-blue-500 flex-shrink-0" />
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-900 truncate" title={inspection.url}>
-                                  {inspection.url}
-                                </p>
-                                <p className="text-xs text-slate-500 mt-0.5">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <p className="text-sm font-medium text-slate-900 truncate" title={inspection.url}>
+                                    {inspection.url}
+                                  </p>
+                                  {inspection.projectId && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full flex-shrink-0">
+                                      <FolderIcon className="h-3 w-3" />
+                                      Project
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-500">
                                   {formatCompactDate(inspection.createdAt || inspection.timestamp)}
                                 </p>
                               </div>
@@ -408,23 +541,28 @@ function HistoryPageContent() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-1">
-                                <Button size="sm" variant="outline" className="h-7 px-3 text-xs pointer-events-none">
+                                <Button size="sm" variant="outline" className="h-8 px-3 text-xs pointer-events-none">
                                   View
                                 </Button>
-                                {!inspection.projectId && (
-                                  <Button 
-                                    variant="ghost" 
-                                    size="sm"
-                                    className="h-7 w-7 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={(e) => {
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  className={`h-8 w-8 p-0 text-slate-400 hover:text-red-500 hover:bg-red-50 transition-opacity ${
+                                    inspection.projectId 
+                                      ? 'invisible' 
+                                      : 'opacity-0 group-hover:opacity-100'
+                                  }`}
+                                  onClick={(e) => {
+                                    if (!inspection.projectId) {
                                       e.preventDefault();
                                       e.stopPropagation();
                                       handleDeleteClick(inspection._id, 'inspection');
-                                    }}
-                                  >
-                                    <TrashIcon className="h-3 w-3" />
-                                  </Button>
-                                )}
+                                    }
+                                  }}
+                                  disabled={!!inspection.projectId}
+                                >
+                                  <TrashIcon className="h-3 w-3" />
+                                </Button>
                               </div>
                             </div>
                           </div>
@@ -454,7 +592,7 @@ function HistoryPageContent() {
             <TabsContent value="projects" className="mt-0">
               {/* Projects Content */}
               <div className="space-y-2">
-                {loading ? (
+                {(loading || isSearching) ? (
                   // Loading skeletons for projects - more compact
                   Array.from({ length: 5 }).map((_, index) => (
                     <div key={index} className="border rounded-lg p-4 bg-white">
@@ -475,7 +613,11 @@ function HistoryPageContent() {
                     </div>
                   ))
                 ) : activeTab === "projects" && currentItems.length > 0 ? (
-                  currentItems.map((item) => {
+                  // Apply client-side pagination for search results
+                  currentItems
+                    .slice(searchTerm.trim() ? (currentPage - 1) * itemsPerPage : 0, 
+                           searchTerm.trim() ? currentPage * itemsPerPage : currentItems.length)
+                    .map((item) => {
                     const project = item as Project;
                     return (
                       <Link key={project._id} href={`/project/${project._id}`}>
@@ -600,7 +742,7 @@ function HistoryPageContent() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
                 className="h-8 px-3 text-xs"
               >
@@ -623,7 +765,7 @@ function HistoryPageContent() {
                     key={page}
                     variant={currentPage === page ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setCurrentPage(page)}
+                    onClick={() => handlePageChange(page)}
                     className="h-8 w-8 p-0 text-xs"
                   >
                     {page}
@@ -633,7 +775,7 @@ function HistoryPageContent() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
                 disabled={currentPage === totalPages}
                 className="h-8 px-3 text-xs"
               >

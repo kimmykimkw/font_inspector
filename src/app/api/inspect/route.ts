@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { inspectWebsite } from '@/server/services/inspectionService';
-import { saveInspectionResult, saveFailedInspectionResult } from '@/server/services/firebaseService';
+import { saveInspectionResult } from '@/server/services/firebaseService';
 import { formatTimestamp } from '@/lib/server-utils';
 import { getAuthenticatedUser, getAuthorizedUser, createUnauthorizedResponse } from '@/lib/auth-utils';
 import { incrementUserInspectionCount } from '@/lib/user-stats';
 import { checkInspectionLimit } from '@/lib/limit-checker';
+import { DatabaseFactory } from '@/lib/database-factory';
 import logger from '@/lib/logger';
 
 export async function POST(request: Request) {
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
     
     // Parse request body
     const body = await request.json();
-    logger.debug('Request body received');
+    logger.debug('Request body received:', JSON.stringify(body));
     
     // Handle permission check requests - return limit info without creating inspection
     if (body.permissionCheck) {
@@ -109,106 +110,117 @@ export async function POST(request: Request) {
       const crypto = require('crypto');
       const inspectionId = crypto.randomUUID();
       
+      logger.info(`Starting inspection for URL: ${normalizedUrl}, User: ${userId}, Project: ${projectId || 'none'}, InspectionID: ${inspectionId}`);
+      
       // Check if we're in Electron environment for screenshots
       const hasElectronEnv = process.env.ELECTRON_APP === 'true';
       const hasElectronVersions = typeof process.versions?.electron !== 'undefined';
       const isElectronEnv = hasElectronEnv || hasElectronVersions;
       
-            // Only log environment detection in development mode
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔍 API Route Environment Detection: Electron =', isElectronEnv);
-      }
+      // Log environment detection
+      logger.debug(`Environment Detection: Electron = ${isElectronEnv}, Screenshots = ${isElectronEnv}`);
       
       // Use puppeteer service to inspect the website with screenshot options
+      logger.info(`Calling inspectWebsite service for: ${normalizedUrl}`);
       const result = await inspectWebsite(normalizedUrl, {
         captureScreenshots: isElectronEnv, // Only enable screenshots in Electron
         userId: userId,
         inspectionId: inspectionId
       });
-      logger.debug(`Website inspection completed`);
+      logger.info(`Website inspection completed successfully for: ${normalizedUrl}`);
+      logger.debug(`Inspection result summary: ${result.downloadedFonts?.length || 0} downloaded fonts, ${result.activeFonts?.length || 0} active fonts`);
       
-      // Save results to Firebase with user association
-      logger.debug(`Saving inspection result to database`);
-      const savedInspection = await saveInspectionResult(normalizedUrl, result, projectId, userId);
+      // Save results to local database with user association
+      logger.info(`Saving inspection result to local database for: ${normalizedUrl}`);
+      
+      // Get local database services for the user
+      const { inspections } = await DatabaseFactory.getServices(userId);
+      
+      // Prepare inspection data
+      const inspectionData = {
+        url: normalizedUrl,
+        timestamp: new Date(),
+        downloadedFonts: result.downloadedFonts || [],
+        fontFaceDeclarations: result.fontFaceDeclarations || [],
+        activeFonts: result.activeFonts || [],
+        projectId: projectId,
+        userId: userId,
+        status: 'completed' as const,
+        ...(result.screenshots ? { 
+          screenshots: {
+            original: result.screenshots.original,
+            annotated: result.screenshots.annotated,
+            capturedAt: result.screenshots.capturedAt,
+            dimensions: result.screenshots.dimensions,
+            annotationCount: result.screenshots.annotationCount
+          }
+        } : {})
+      };
+      
+      const savedInspection = await inspections.createInspection(inspectionData);
       
       if (!savedInspection || !savedInspection.id) {
-        logger.error('Failed to save inspection to database');
+        logger.error(`Failed to save inspection to local database for URL: ${normalizedUrl}`);
         return NextResponse.json(
           { error: 'Failed to save inspection to database' },
           { status: 500 }
         );
       }
       
-      logger.info(`Inspection saved successfully`);
+      logger.info(`Inspection saved successfully with ID: ${savedInspection.id} for URL: ${normalizedUrl}`);
       
-      // Update user stats
+      // IMMEDIATELY update Firebase user stats (real-time requirement)
       try {
         await incrementUserInspectionCount(userId);
-        logger.debug(`User stats updated`);
+        logger.debug(`Firebase user stats updated for user: ${userId}`);
       } catch (logError) {
         logger.error('Error updating stats:', logError);
         // Don't fail the request if logging fails
       }
       
-      // Return inspection result with Firebase document ID
+      // Return inspection result with local database ID
       return NextResponse.json({
         _id: savedInspection.id, // Use this format for compatibility
         id: savedInspection.id,  // Also include the original id
         url: normalizedUrl,
         timestamp: formatTimestamp(savedInspection.timestamp),
-        createdAt: formatTimestamp(savedInspection.createdAt || savedInspection.timestamp),
-        updatedAt: formatTimestamp(savedInspection.updatedAt || savedInspection.timestamp),
+        createdAt: formatTimestamp(savedInspection.createdAt),
+        updatedAt: formatTimestamp(savedInspection.updatedAt),
         projectId: savedInspection.projectId || projectId, // Use saved projectId or the one from the request
         userId: savedInspection.userId,
         result: {
-          downloadedFonts: result.downloadedFonts,
-          fontFaceDeclarations: result.fontFaceDeclarations,
-          activeFonts: result.activeFonts
+          downloadedFonts: savedInspection.downloadedFonts,
+          fontFaceDeclarations: savedInspection.fontFaceDeclarations,
+          activeFonts: savedInspection.activeFonts
         }
       });
     } catch (inspectionError) {
-      logger.error('Website inspection failed:', inspectionError);
+      logger.error(`Website inspection failed for URL: ${normalizedUrl}:`, inspectionError);
       const errorMessage = inspectionError instanceof Error ? inspectionError.message : String(inspectionError);
+      const errorStack = inspectionError instanceof Error ? inspectionError.stack : 'No stack trace';
       
-      // Save failed inspection to database
-      logger.debug(`Saving failed inspection to database`);
-      try {
-        const savedFailedInspection = await saveFailedInspectionResult(normalizedUrl, errorMessage, projectId, userId);
-        logger.info(`Failed inspection saved`);
-        
-        // Note: No stats update for failed inspections as they don't count towards user limits
-        
-        // Return the failed inspection data instead of an error
-        return NextResponse.json({
-          _id: savedFailedInspection.id,
-          id: savedFailedInspection.id,
+      // Log detailed error information
+      logger.error(`Inspection Error Details:`);
+      logger.error(`  URL: ${normalizedUrl}`);
+      logger.error(`  User: ${userId}`);
+      logger.error(`  Project: ${projectId || 'none'}`);
+      logger.error(`  Error: ${errorMessage}`);
+      logger.error(`  Stack: ${errorStack}`);
+      
+      // Don't save failed inspections to database - just return error response
+      logger.info(`Inspection failed for URL: ${normalizedUrl}, not saving to database`);
+      
+      // Return error response for failed inspection
+      return NextResponse.json(
+        { 
+          error: 'Website inspection failed',
+          details: errorMessage,
           url: normalizedUrl,
-          timestamp: formatTimestamp(savedFailedInspection.timestamp),
-          createdAt: formatTimestamp(savedFailedInspection.createdAt || savedFailedInspection.timestamp),
-          updatedAt: formatTimestamp(savedFailedInspection.updatedAt || savedFailedInspection.timestamp),
-          projectId: savedFailedInspection.projectId || projectId,
-          userId: savedFailedInspection.userId,
           status: 'failed',
-          error: errorMessage,
-          result: {
-            downloadedFonts: [],
-            fontFaceDeclarations: [],
-            activeFonts: []
-          }
-        });
-        
-      } catch (saveError) {
-        logger.error('Error saving failed inspection to database:', saveError);
-        // If we can't save failed inspection, return the original error
-        return NextResponse.json(
-          { 
-            error: 'Website inspection failed',
-            details: errorMessage,
-            url: normalizedUrl
-          },
-          { status: 422 }
-        );
-      }
+          message: errorMessage // Add message field for better error handling
+        },
+        { status: 422 }
+      );
     }
   } catch (error) {
     logger.error('Request processing error:', error);
@@ -217,14 +229,16 @@ export async function POST(request: Request) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : 'No stack trace';
     
-    // Return error response
+    // Return error response (use 422 for consistency with inspection failures)
     return NextResponse.json(
       {
         error: 'Failed to process inspection request',
         details: errorMessage,
+        message: errorMessage,
+        status: 'failed',
         stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
       },
-      { status: 500 }
+      { status: 422 }
     );
   }
 } 

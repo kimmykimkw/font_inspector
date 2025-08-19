@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { ResizableTable, ResizableHeader, ResizableCell } from "@/components/ui/resizable";
 import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { authenticatedFetch } from "@/lib/api-client";
+import { useAuth } from "@/contexts/AuthContext";
 import { 
   FolderOpen, 
   Calendar, 
@@ -69,6 +71,7 @@ interface ActiveFont {
 export default function ProjectResultsPage() {
   const router = useRouter();
   const { id } = useParams();
+  const { user, loading: authLoading } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,15 +83,26 @@ export default function ProjectResultsPage() {
     y: 0
   });
   
-  // Fetch project data from MongoDB
+  // Fetch project data with authentication
   useEffect(() => {
     const fetchProject = async () => {
       if (!id) return;
       
+      // Wait for auth to complete
+      if (authLoading) {
+        return;
+      }
+      
+      // Redirect to home if not authenticated
+      if (!user) {
+        router.push('/');
+        return;
+      }
+      
       try {
         setLoading(true);
         
-        const response = await fetch(`/api/projects/${id}`);
+        const response = await authenticatedFetch(`/api/projects/${id}`);
         
         if (!response.ok) {
           throw new Error(`Failed to fetch project: ${response.statusText}`);
@@ -109,10 +123,10 @@ export default function ProjectResultsPage() {
     };
     
     fetchProject();
-  }, [id]);
+  }, [id, user, authLoading, router]);
 
   // If loading or no data
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="container mx-auto py-8 px-4">
         <Card>
@@ -168,15 +182,48 @@ export default function ProjectResultsPage() {
     }
   };
 
-  // Function to extract clean website name from URL
+  // Function to extract descriptive page name from URL
   const getWebsiteName = (url: string): string => {
     try {
       const urlObj = new URL(url);
       let hostname = urlObj.hostname;
+      const pathname = urlObj.pathname;
       
       // Remove 'www.' prefix if present
       if (hostname.startsWith('www.')) {
         hostname = hostname.substring(4);
+      }
+      
+      // If it's just the root path, return the hostname
+      if (pathname === '/' || pathname === '') {
+        return `${hostname} (Home)`;
+      }
+      
+      // Extract meaningful path segments
+      const pathSegments = pathname.split('/').filter(segment => segment.length > 0);
+      
+      if (pathSegments.length > 0) {
+        // Get the last meaningful segment and clean it up
+        const lastSegment = pathSegments[pathSegments.length - 1];
+        
+        // Convert common path patterns to readable names
+        const pathName = lastSegment
+          .replace(/[-_]/g, ' ')
+          .replace(/\.(html|php|aspx?)$/i, '')
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ');
+        
+        // Special cases for common page types
+        if (lastSegment.toLowerCase().includes('about')) return `${hostname} (About)`;
+        if (lastSegment.toLowerCase().includes('contact')) return `${hostname} (Contact)`;
+        if (lastSegment.toLowerCase().includes('product')) return `${hostname} (Products)`;
+        if (lastSegment.toLowerCase().includes('service')) return `${hostname} (Services)`;
+        if (lastSegment.toLowerCase().includes('blog')) return `${hostname} (Blog)`;
+        if (lastSegment.toLowerCase().includes('news')) return `${hostname} (News)`;
+        
+        // For other paths, show hostname + path
+        return `${hostname} (${pathName})`;
       }
       
       return hostname;
@@ -386,11 +433,16 @@ export default function ProjectResultsPage() {
       return;
     }
     
+    if (!user) {
+      toast.error("Authentication required to delete project");
+      return;
+    }
+    
     try {
       setLoading(true);
       
-      // Call API to delete project
-      const response = await fetch(`/api/projects/${project._id}`, {
+      // Call API to delete project with authentication
+      const response = await authenticatedFetch(`/api/projects/${project._id}`, {
         method: 'DELETE',
       });
       
@@ -455,7 +507,7 @@ export default function ProjectResultsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-sm text-muted-foreground">
-              This project includes inspections for {project.inspections.length} websites
+              This project includes inspections for {project.inspections.length} webpages
               {failedInspections.length > 0 && (
                 <span className="ml-1">
                   ({successfulInspections.length} successful, {failedInspections.length} failed)
@@ -534,7 +586,7 @@ export default function ProjectResultsPage() {
             <div className="mt-6 mb-6">
               <h3 className="text-lg font-medium mb-4 text-slate-700 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
-                Most Active Font per Website
+                Most Active Font per Webpage
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {successfulInspections.map(inspection => {
@@ -631,7 +683,7 @@ export default function ProjectResultsPage() {
             <div className="mt-8">
               <h3 className="text-lg font-medium mb-4 text-slate-700 flex items-center gap-2">
                 <Type className="h-5 w-5" />
-                All Detected Fonts
+                All Detected Font Files
               </h3>
               {allFonts.length > 0 ? (
                 <div className="border rounded-md overflow-hidden">
@@ -643,7 +695,7 @@ export default function ProjectResultsPage() {
                         <ResizableHeader index={2} className="p-3 text-left font-medium w-[80px]">Format</ResizableHeader>
                         <ResizableHeader index={3} className="p-3 text-left font-medium w-[100px]">Size (KB)</ResizableHeader>
                         <ResizableHeader index={4} className="p-3 text-left font-medium w-[150px]">Source</ResizableHeader>
-                        <ResizableHeader index={5} className="p-3 text-left font-medium w-1/6">Website</ResizableHeader>
+                        <ResizableHeader index={5} className="p-3 text-left font-medium w-1/6">Webpage</ResizableHeader>
                       </tr>
                     </thead>
                     <tbody>

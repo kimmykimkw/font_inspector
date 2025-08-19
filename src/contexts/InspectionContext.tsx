@@ -17,6 +17,8 @@ export interface InspectionItem {
   completedAt?: Date;
   projectId?: string; // Reference to the project this inspection belongs to
   backendId?: string; // Reference to the backend ID of this inspection
+  startTime?: Date; // When the inspection actually started processing
+  isLongRunning?: boolean; // Flag to indicate if this is taking longer than expected
 }
 
 export interface Project {
@@ -193,14 +195,26 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
     const backendInspectionIds: string[] = []; // Store backend IDs from inspections
     
     for (const item of newItems) {
-      // Update status to processing
+      // Update status to processing and set start time
+      const startTime = new Date();
       setQueue(prev => 
         prev.map(qItem => 
           qItem.id === item.id 
-            ? { ...qItem, status: 'processing' as const, progress: 10 } 
+            ? { ...qItem, status: 'processing' as const, progress: 10, startTime } 
             : qItem
         )
       );
+
+      // Set up a timer to mark as long-running after 30 seconds
+      const longRunningTimer = setTimeout(() => {
+        setQueue(prev => 
+          prev.map(qItem => 
+            qItem.id === item.id && qItem.status === 'processing'
+              ? { ...qItem, isLongRunning: true }
+              : qItem
+          )
+        );
+      }, 30000); // 30 seconds
 
       try {
         console.log(`Processing inspection for URL: ${item.url}`);
@@ -208,42 +222,27 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
         // Call the API to inspect the URL
         const inspectionResult = await apiClient.inspectUrl([item.url], projectId);
         
+        // Clear the long-running timer since inspection completed
+        clearTimeout(longRunningTimer);
+        
         console.log(`Inspection completed for ${item.url}:`, inspectionResult);
         
-        // Check if this is a failed inspection
-        if (inspectionResult.status === 'failed') {
-          // Handle failed inspection
-          setQueue(prev => 
-            prev.map(qItem => 
-              qItem.id === item.id 
-                ? { 
-                    ...qItem, 
-                    status: 'failed' as const, 
-                    error: inspectionResult.error || 'Inspection failed',
-                    completedAt: new Date(),
-                    backendInspectionId: inspectionResult.id,
-                    result: inspectionResult
-                  }
-                : qItem
-            )
-          );
-        } else {
-          // Handle successful inspection
-          setQueue(prev => 
-            prev.map(qItem => 
-              qItem.id === item.id 
-                ? { 
-                    ...qItem, 
-                    status: 'completed' as const, 
-                    completedAt: new Date(),
-                    backendInspectionId: inspectionResult.id,
-                    backendId: inspectionResult.id, // Add this for analyze page compatibility
-                    result: inspectionResult
-                  }
-                : qItem
-            )
-          );
-        }
+        // Handle successful inspection
+        setQueue(prev => 
+          prev.map(qItem => 
+            qItem.id === item.id 
+              ? { 
+                  ...qItem, 
+                  status: 'completed' as const, 
+                  completedAt: new Date(),
+                  backendInspectionId: inspectionResult.id,
+                  backendId: inspectionResult.id, // Add this for analyze page compatibility
+                  result: inspectionResult,
+                  isLongRunning: false
+                }
+              : qItem
+          )
+        );
 
         // Capture the inspection ID from the backend for database association
         const backendInspectionId = inspectionResult._id || inspectionResult.inspectionId || inspectionResult.id || null;
@@ -252,22 +251,23 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
           backendInspectionIds.push(backendInspectionId); // Backend ID for database association
         }
 
-        // Add to recent inspections for quick access (only for successful inspections)
-        if (inspectionResult.status !== 'failed') {
-          setRecentInspections(prev => [{
-            id: inspectionResult.id || inspectionResult._id,
-            url: item.url,
-            status: 'completed' as const,
-            progress: 100,
-            result: inspectionResult,
-            createdAt: new Date(),
-            completedAt: new Date(),
-            backendId: backendInspectionId
-          }, ...prev].slice(0, 10));
-        }
+        // Add to recent inspections for quick access
+        setRecentInspections(prev => [{
+          id: inspectionResult.id || inspectionResult._id,
+          url: item.url,
+          status: 'completed' as const,
+          progress: 100,
+          result: inspectionResult,
+          createdAt: new Date(),
+          completedAt: new Date(),
+          backendId: backendInspectionId
+        }, ...prev].slice(0, 10));
 
       } catch (error) {
         console.error(`Failed to inspect ${item.url}:`, error);
+        
+        // Clear the long-running timer on error
+        clearTimeout(longRunningTimer);
         
         // Update the queue item with failure status
         setQueue(prev => 
@@ -277,14 +277,14 @@ export function InspectionProvider({ children }: { children: ReactNode }) {
                   ...qItem, 
                   status: 'failed' as const, 
                   error: error instanceof Error ? error.message : String(error),
-                  completedAt: new Date()
+                  completedAt: new Date(),
+                  isLongRunning: false
                 }
               : qItem
           )
         );
         
-        // Note: This catch block should rarely be reached now since failed inspections
-        // are returned as successful responses with status: 'failed'
+        // Note: Failed inspections now return error responses and are handled here
       }
     }
 

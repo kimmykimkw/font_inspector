@@ -126,7 +126,12 @@ export const clearSettingsCache = (): void => {
 };
 
 // Get default user permissions based on current settings
-export const getDefaultUserPermissions = async () => {
+export const getDefaultUserPermissions = async (forceFresh: boolean = false) => {
+  // Clear cache if forced refresh is requested (useful for critical operations like user approval)
+  if (forceFresh) {
+    clearSettingsCache();
+  }
+  
   const settings = await getSystemSettings();
   
   return {

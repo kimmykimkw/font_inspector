@@ -1,29 +1,8 @@
 import { NextResponse } from "next/server";
-import { getProjectById } from "@/lib/models/project";
-import { getInspectionsByProjectId } from "@/lib/models/inspection";
-import { getInspectionById, Inspection } from "@/lib/models/inspection";
-import { deleteProject } from "@/lib/models/project";
-
-// Helper function to safely format timestamps
-const formatTimestamp = (timestamp: any) => {
-  if (!timestamp) return new Date().toISOString();
-  
-  try {
-    if (timestamp instanceof Date) {
-      return timestamp.toISOString();
-    }
-    
-    // Firebase Timestamp handling
-    if (timestamp && typeof timestamp.toDate === 'function') {
-      return timestamp.toDate().toISOString();
-    }
-    
-    return new Date(timestamp).toISOString();
-  } catch (err) {
-    console.warn('Timestamp conversion error:', err);
-    return new Date().toISOString();
-  }
-};
+import { DatabaseFactory } from "@/lib/database-factory";
+import { getAuthenticatedUser, createUnauthorizedResponse } from "@/lib/auth-utils";
+import { formatTimestamp } from "@/lib/server-utils";
+import logger from "@/lib/logger";
 
 // GET /api/projects/[id] - Fetch a single project by ID
 export async function GET(
@@ -32,7 +11,15 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    console.log(`API: Fetching project with ID: ${id}`);
+    logger.debug(`API: Fetching project with ID: ${id}`);
+    
+    // Get authenticated user
+    const userId = await getAuthenticatedUser(request);
+    
+    if (!userId) {
+      logger.debug("Unauthenticated request to get project");
+      return createUnauthorizedResponse();
+    }
     
     // Handle case when id is stringified object
     let projectId = id;
@@ -41,58 +28,40 @@ export async function GET(
       if (id.startsWith('{') && id.endsWith('}')) {
         const parsed = JSON.parse(id);
         projectId = parsed.id || parsed._id || id;
-        console.log(`API: Parsed project ID from JSON: ${projectId}`);
+        logger.debug(`API: Parsed project ID from JSON: ${projectId}`);
       }
     } catch (err) {
-      console.log(`API: Not a JSON object: ${id}`);
+      logger.debug(`API: Not a JSON object: ${id}`);
     }
     
-    // Get project from Firebase
-    const project = await getProjectById(projectId);
+    // Get local database services for the user
+    const { projects: projectService, inspections: inspectionService } = await DatabaseFactory.getServices(userId);
     
-    // If project not found, return 404
+    // Get project from local database
+    const project = await projectService.getProject(projectId, userId);
+    
+    // If project not found or access denied, return 404
     if (!project) {
-      console.log(`API: Project with ID ${projectId} not found`);
+      logger.debug(`API: Project with ID ${projectId} not found or access denied`);
       return NextResponse.json(
-        { error: "Project not found", details: `No project with ID ${projectId}` },
+        { error: "Project not found", details: "Project not found or access denied" },
         { status: 404 }
       );
     }
     
-    console.log(`API: Found project: ${project.name} with ${project.inspectionIds?.length || 0} inspectionIds`);
+    logger.debug(`API: Found project: ${project.name} with ${project.inspectionIds?.length || 0} inspectionIds`);
     
-    // Get all inspections for this project
-    let inspections: Inspection[] = [];
+    // Get all inspections for this project from local database
+    let inspections: any[] = [];
     try {
-      inspections = await getInspectionsByProjectId(projectId);
-      console.log(`API: Found ${inspections.length} inspections for project ${projectId}`);
-      
-      if (inspections.length === 0 && project.inspectionIds?.length > 0) {
-        // We have inspectionIds but couldn't find any inspections, try to log the issue
-        console.warn(`API: Project has ${project.inspectionIds.length} inspectionIds but no inspections were found.`);
-        console.log(`API: InspectionIds in project:`, project.inspectionIds);
-        
-        // Try to fetch each inspection individually to see which ones might be missing
-        for (const inspId of project.inspectionIds) {
-          try {
-            const insp = await getInspectionById(inspId);
-            if (insp) {
-              console.log(`API: Found inspection ${inspId} with projectId ${insp.projectId}`);
-              inspections.push(insp);
-            } else {
-              console.warn(`API: Inspection ${inspId} not found`);
-            }
-          } catch (err) {
-            console.error(`API: Error fetching inspection ${inspId}:`, err);
-          }
-        }
-      }
+      inspections = await inspectionService.getInspectionsByProjectId(projectId);
+      logger.debug(`API: Found ${inspections.length} inspections for project ${projectId}`);
     } catch (inspError) {
-      console.error(`API: Error fetching inspections for project ${projectId}:`, inspError);
+      logger.error(`API: Error fetching inspections for project ${projectId}:`, inspError);
       // Continue anyway to at least return the project data
     }
     
-    // Convert Firebase data format to the format expected by the frontend
+    // Convert local database format to the format expected by the frontend
     const formattedProject = {
       _id: project.id,
       name: project.name,
@@ -114,12 +83,12 @@ export async function GET(
       }))
     };
     
-    console.log(`API: Returning project with ID: ${projectId} with ${formattedProject.inspections?.length || 0} inspections`);
+    logger.debug(`API: Returning project with ID: ${projectId} with ${formattedProject.inspections?.length || 0} inspections`);
     
     // Return the formatted project as JSON
     return NextResponse.json(formattedProject);
   } catch (error) {
-    console.error("API Error fetching project:", error);
+    logger.error("API Error fetching project:", error);
     
     // Get detailed error info
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -144,7 +113,15 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    console.log(`API: Deleting project with ID: ${id}`);
+    logger.debug(`API: Deleting project with ID: ${id}`);
+    
+    // Get authenticated user
+    const userId = await getAuthenticatedUser(request);
+    
+    if (!userId) {
+      logger.debug("Unauthenticated request to delete project");
+      return createUnauthorizedResponse();
+    }
     
     // Handle case when id is stringified object
     let projectId = id;
@@ -153,24 +130,38 @@ export async function DELETE(
       if (id.startsWith('{') && id.endsWith('}')) {
         const parsed = JSON.parse(id);
         projectId = parsed.id || parsed._id || id;
-        console.log(`API: Parsed project ID from JSON: ${projectId}`);
+        logger.debug(`API: Parsed project ID from JSON: ${projectId}`);
       }
     } catch (err) {
-      console.log(`API: Not a JSON object: ${id}`);
+      logger.debug(`API: Not a JSON object: ${id}`);
     }
     
-    // Delete project from Firebase (this also deletes associated inspections)
-    const success = await deleteProject(projectId);
+    // Get local database services for the user
+    const { projects: projectService } = await DatabaseFactory.getServices(userId);
     
-    if (!success) {
-      console.log(`API: Project with ID ${projectId} not found or could not be deleted`);
+    // First, verify the project exists and belongs to the user
+    const project = await projectService.getProject(projectId, userId);
+    
+    if (!project) {
+      logger.debug(`API: Project with ID ${projectId} not found or access denied`);
       return NextResponse.json(
-        { error: "Project not found or could not be deleted" },
+        { error: "Project not found or access denied" },
         { status: 404 }
       );
     }
     
-    console.log(`API: Successfully deleted project with ID: ${projectId}`);
+    // Delete project from local database (this also deletes associated inspections)
+    const success = await projectService.deleteProject(projectId);
+    
+    if (!success) {
+      logger.debug(`API: Project with ID ${projectId} could not be deleted`);
+      return NextResponse.json(
+        { error: "Project could not be deleted" },
+        { status: 500 }
+      );
+    }
+    
+    logger.debug(`API: Successfully deleted project with ID: ${projectId}`);
     
     // Return success response
     return NextResponse.json({ 
@@ -178,7 +169,7 @@ export async function DELETE(
       message: "Project deleted successfully"
     });
   } catch (error) {
-    console.error(`API Error deleting project:`, error);
+    logger.error(`API Error deleting project:`, error);
     
     // Get detailed error info
     const errorMessage = error instanceof Error ? error.message : String(error);

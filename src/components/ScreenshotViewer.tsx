@@ -336,6 +336,11 @@ export function ScreenshotViewer({ inspectionId, screenshots, url }: ScreenshotV
           </TabsContent>
 
           <TabsContent value="annotated" className="mt-0">
+            <div className="mb-3">
+              <p className="text-xs text-muted-foreground">
+                Font annotations show all fonts used on the page, including web fonts and system fonts, with at least one annotation per page section
+              </p>
+            </div>
             <div className="border rounded-lg overflow-auto bg-muted/50">
               {screenshotImages.annotated ? (
                 <div 
@@ -373,7 +378,7 @@ export function ScreenshotViewer({ inspectionId, screenshots, url }: ScreenshotV
             )}
             {typeof screenshots.annotationCount === 'number' && screenshots.annotationCount === 0 && (
               <p className="text-xs text-muted-foreground mt-2">
-                No meaningful web fonts were found to annotate on this page. The website may be using only system fonts.
+                No fonts were found to annotate on this page. This may indicate an issue with font detection.
               </p>
             )}
           </TabsContent>

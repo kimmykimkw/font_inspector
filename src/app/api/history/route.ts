@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { getRecentInspections } from "@/lib/models/inspection";
+import { getRecentInspections, repairOrphanedInspections, searchInspections } from "@/lib/models/inspection";
 import { db } from "@/lib/firebase";
 import { getAuthenticatedUser, createUnauthorizedResponse } from "@/lib/auth-utils";
+import { DatabaseFactory } from "@/lib/database-factory";
+import { formatTimestamp } from "@/lib/server-utils";
 
 // GET /api/history - Fetch inspection history for authenticated user
 export async function GET(request: Request) {
@@ -16,43 +18,35 @@ export async function GET(request: Request) {
       return createUnauthorizedResponse();
     }
     
-    console.log(`API: Fetching inspection history for user: ${userId}`);
+    // Parse pagination parameters
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const search = url.searchParams.get('search');
     
-    // Debug: List all collections in Firestore to check names
-    try {
-      console.log("Attempting to list all collections in Firestore...");
-      const collections = await db.listCollections();
-      const collectionIds = collections.map(col => col.id);
-      console.log("Available collections in Firestore:", collectionIds);
-    } catch (err) {
-      console.error("Error listing collections:", err);
+    console.log(`API: Fetching inspection history for user: ${userId}, page: ${page}, limit: ${limit}${search ? `, search: "${search}"` : ''}`);
+    
+    // Get local database services for the user
+    const { inspections: inspectionService } = await DatabaseFactory.getServices(userId);
+    
+    let inspections;
+    
+    if (search && search.trim()) {
+      // Use search function if search term is provided
+      inspections = await inspectionService.searchInspections(userId, search.trim(), limit);
+    } else {
+      // Use regular pagination if no search term
+      const offset = (page - 1) * limit;
+      inspections = await inspectionService.getInspectionsByUser(userId, {
+        limit,
+        offset,
+        orderBy: 'createdAt',
+        orderDirection: 'DESC'
+      });
     }
-    
-    // Get recent inspections from Firebase for this user
-    const inspections = await getRecentInspections(50, userId); // Limit to 50 inspections for this user
     
     // Format inspections to match the frontend expected structure
     const formattedInspections = inspections.map(inspection => {
-      // Safely handle timestamp conversions
-      const formatTimestamp = (timestamp: any) => {
-        if (!timestamp) return new Date().toISOString();
-        
-        try {
-          if (timestamp instanceof Date) {
-            return timestamp.toISOString();
-          }
-          
-          // Firebase Timestamp handling
-          if (typeof timestamp.toDate === 'function') {
-            return timestamp.toDate().toISOString();
-          }
-          
-          return new Date(timestamp).toISOString();
-        } catch (err) {
-          console.warn('Timestamp conversion error:', err);
-          return new Date().toISOString();
-        }
-      };
       
       return {
         _id: inspection.id,
@@ -69,8 +63,16 @@ export async function GET(request: Request) {
     
     console.log(`API: Found ${inspections.length} inspection records for user ${userId}`);
     
-    // Return the formatted inspection records as JSON
-    return NextResponse.json(formattedInspections);
+    // Return the formatted inspection records with pagination metadata
+    return NextResponse.json({
+      data: formattedInspections,
+      pagination: {
+        page: page,
+        limit: limit,
+        hasMore: inspections.length === limit // If we got exactly the limit, there might be more
+      },
+      isSearch: !!search
+    });
   } catch (error) {
     // Get detailed error info
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -89,6 +91,55 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { 
         error: "Failed to fetch inspection history", 
+        details: errorMessage,
+        type: errorName,
+        stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/history - Repair orphaned inspections for authenticated user
+export async function POST(request: Request) {
+  try {
+    console.log("API: Repairing orphaned inspections");
+    
+    // Get authenticated user
+    const userId = await getAuthenticatedUser(request);
+    
+    if (!userId) {
+      console.log("API: Unauthenticated request to repair endpoint");
+      return createUnauthorizedResponse();
+    }
+    
+    console.log(`API: Starting repair for user: ${userId}`);
+    
+    // Run the repair function
+    const repairResult = await repairOrphanedInspections(userId);
+    
+    console.log(`API: Repair completed - fixed ${repairResult.fixed} out of ${repairResult.total} inspections`);
+    
+    // Return the repair results
+    return NextResponse.json({
+      success: true,
+      message: `Repair completed: fixed ${repairResult.fixed} out of ${repairResult.total} inspections`,
+      fixed: repairResult.fixed,
+      total: repairResult.total
+    });
+  } catch (error) {
+    // Get detailed error info
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorName = error instanceof Error ? error.name : 'Unknown Error';
+    const errorStack = error instanceof Error ? error.stack : 'No stack trace';
+    
+    console.error(`API Error repairing orphaned inspections: ${errorName} - ${errorMessage}`);
+    console.error(errorStack);
+    
+    // Return error response
+    return NextResponse.json(
+      { 
+        error: "Failed to repair orphaned inspections", 
         details: errorMessage,
         type: errorName,
         stack: process.env.NODE_ENV === 'development' ? errorStack : undefined

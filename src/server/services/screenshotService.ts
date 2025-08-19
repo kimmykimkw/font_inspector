@@ -309,6 +309,18 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
   try {
     console.log('Adding font annotations to page...');
     
+    // Debug: Log what we're working with
+    console.log('🔍 Font analysis result summary:');
+    console.log(`  - Active fonts: ${fontAnalysisResult.activeFonts?.length || 0}`);
+    console.log(`  - Downloaded fonts: ${fontAnalysisResult.downloadedFonts?.length || 0}`);
+    
+    if (fontAnalysisResult.activeFonts?.length > 0) {
+      console.log('🔍 Active fonts available for annotation:');
+      fontAnalysisResult.activeFonts.forEach((font: any, index: number) => {
+        console.log(`  ${index + 1}. "${font.family}" (${font.elementCount} elements)`);
+      });
+    }
+    
     // Inject annotation script into the page
     const annotationCount = await page.evaluate((data) => {
       const { activeFonts, downloadedFonts } = data;
@@ -334,8 +346,8 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
         });
       }
       
-      // Filter active fonts to only those that were downloaded
-      const meaningfulFonts = activeFonts.filter((font: any) => {
+      // Filter active fonts to include all meaningful fonts (including system fonts)
+      let meaningfulFonts = activeFonts.filter((font: any) => {
         const familyLower = font.family.toLowerCase().replace(/["']/g, '').trim();
         
         // Skip if no elements use this font
@@ -343,46 +355,118 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
           return false;
         }
         
-        // Check if this font family matches any of our downloaded fonts
-        for (const downloadedFont of downloadedFontFamilies) {
-          // Direct match
-          if (familyLower === downloadedFont) {
-            return true;
-          }
-          
-          // Font name is contained within family or vice versa
-          if (familyLower.includes(downloadedFont) || downloadedFont.includes(familyLower)) {
-            return true;
-          }
-          
-          // Word-based match for compound names
-          const familyWords = familyLower.split(/[-_\s]+/);
-          const downloadedWords = downloadedFont.split(/[-_\s]+/);
-          if (familyWords.some((word: string) => downloadedWords.includes(word)) ||
-              downloadedWords.some((word: string) => familyWords.includes(word))) {
-            return true;
-          }
+        // Only skip obviously invalid font names (single characters, common CSS artifacts)
+        if (familyLower.length <= 2 || ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'].includes(familyLower)) {
+          console.log(`⚠️ Skipping suspicious font name: "${font.family}"`);
+          return false;
         }
         
-        return false;
+        // If we have downloaded fonts, try to match
+        if (downloadedFontFamilies.size > 0) {
+          console.log(`🔍 Trying to match active font "${familyLower}" with downloaded fonts...`);
+          // Check if this font family matches any of our downloaded fonts
+          for (const downloadedFont of downloadedFontFamilies) {
+            // Direct match
+            if (familyLower === downloadedFont) {
+              console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (direct match)`);
+              return true;
+            }
+            
+            // Font name is contained within family or vice versa
+            if (familyLower.includes(downloadedFont) || downloadedFont.includes(familyLower)) {
+              console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (substring match)`);
+              return true;
+            }
+            
+            // Word-based match for compound names
+            const familyWords = familyLower.split(/[-_\s]+/);
+            const downloadedWords = downloadedFont.split(/[-_\s]+/);
+            
+            // Check for word matches
+            if (familyWords.some((word: string) => downloadedWords.includes(word)) ||
+                downloadedWords.some((word: string) => familyWords.includes(word))) {
+              console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (word match)`);
+              return true;
+            }
+            
+            // Check for compound word matches (e.g., "noto sans kr" vs "notosanskr")
+            const familyCompound = familyLower.replace(/[-_\s]+/g, '');
+            const downloadedCompound = downloadedFont.replace(/[-_\s]+/g, '');
+            if (familyCompound.includes(downloadedCompound) || downloadedCompound.includes(familyCompound)) {
+              console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (compound match)`);
+              return true;
+            }
+            
+            // Check for partial compound matches (e.g., "notosanskr" contains "noto", "sans", "kr")
+            if (familyWords.length > 1 && familyWords.every(word => downloadedCompound.includes(word))) {
+              console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (compound word match)`);
+              return true;
+            }
+            if (downloadedWords.length > 1 && downloadedWords.every(word => familyCompound.includes(word))) {
+              console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (reverse compound word match)`);
+              return true;
+            }
+            
+            // Special case: Check for common font aliases and brand names
+            const aliases = new Map([
+              ['big hit', 'hybe'],
+              ['bighit', 'hybe'],
+              ['201110', 'hybe'],
+              ['notosanscjkkr', 'notosanskr'],
+              ['noto sans cjk kr', 'notosanskr'],
+              ['noto sans cjk', 'notosanskr']
+            ]);
+            
+            for (const [alias, canonical] of aliases.entries()) {
+              if ((familyCompound.includes(alias) || familyLower.includes(alias)) && 
+                  (downloadedCompound.includes(canonical) || downloadedFont.includes(canonical))) {
+                console.log(`✅ Matched "${familyLower}" with "${downloadedFont}" (alias match: ${alias} → ${canonical})`);
+                return true;
+              }
+            }
+          }
+          console.log(`❌ No match found for active font "${familyLower}"`);
+          return false;
+        } else {
+          // If no downloaded fonts detected, include all fonts (including system fonts)
+          return true;
+        }
       });
       
-      console.log(`Filtered to ${meaningfulFonts.length} meaningful fonts from ${activeFonts.length} total`);
+      // If no meaningful fonts found but we have active fonts, use the top active fonts (including system fonts)
+      if (meaningfulFonts.length === 0 && activeFonts.length > 0) {
+        meaningfulFonts = activeFonts
+          .filter((font: any) => {
+            const familyLower = font.family.toLowerCase().replace(/["']/g, '').trim();
+            const isSuspicious = familyLower.length <= 2 || ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'].includes(familyLower);
+            return !isSuspicious && font.elementCount > 0;
+          })
+          .slice(0, 8); // Increased limit to accommodate more fonts including system fonts
+      }
       
-      // Create colors for meaningful fonts
+      console.log(`Filtered to ${meaningfulFonts.length} meaningful fonts from ${activeFonts.length} total`);
+      console.log('🔍 Meaningful fonts for annotation:', meaningfulFonts.map(f => f.family));
+      console.log('🔍 Downloaded font families detected:', Array.from(downloadedFontFamilies));
+      
+      // Create colors for meaningful fonts - expanded palette for more font types
       const fontColors = new Map();
       const colors = [
         '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-        '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+        '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+        '#F39C12', '#E74C3C', '#9B59B6', '#3498DB', '#1ABC9C',
+        '#2ECC71', '#F1C40F', '#E67E22', '#95A5A6', '#34495E'
       ];
       
       let colorIndex = 0;
       meaningfulFonts.forEach((font: any) => {
         if (!fontColors.has(font.family)) {
           fontColors.set(font.family, colors[colorIndex % colors.length]);
+          console.log(`🎨 Added font to color map: "${font.family}" -> ${colors[colorIndex % colors.length]}`);
           colorIndex++;
         }
       });
+      
+      console.log('🗺️ Final fontColors Map entries:', Array.from(fontColors.entries()));
       
       // Find text elements that use meaningful fonts
       const candidateElements = Array.from(document.querySelectorAll(
@@ -462,8 +546,21 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
           
           // Check if this element uses one of our meaningful fonts
           for (const [familyName, color] of fontColors.entries()) {
-            if (fontFamily.includes(familyName) || 
-                fontFamily.toLowerCase().includes(familyName.toLowerCase())) {
+            console.log(`🔍 Checking font match: element font="${fontFamily}" vs meaningful font="${familyName}"`);
+            
+            // Clean up both font names for comparison
+            const cleanElementFont = fontFamily.toLowerCase().replace(/["']/g, '').trim();
+            const cleanMeaningfulFont = familyName.toLowerCase().replace(/["']/g, '').trim();
+            
+            // Try multiple matching strategies
+            const directMatch = cleanElementFont.includes(cleanMeaningfulFont) || cleanMeaningfulFont.includes(cleanElementFont);
+            const firstWordMatch = cleanElementFont.split(/[\s,]+/)[0] === cleanMeaningfulFont.split(/[\s,]+/)[0];
+            const wordBasedMatch = cleanElementFont.split(/[\s,]+/).some(word => 
+              cleanMeaningfulFont.split(/[\s,]+/).includes(word)
+            );
+            
+            if (directMatch || firstWordMatch || wordBasedMatch) {
+              console.log(`✅ Font match found: "${familyName}" will be used in annotation (match type: ${directMatch ? 'direct' : firstWordMatch ? 'first-word' : 'word-based'})`);
               
               // Enhanced priority calculation for better representative selection
               let priority = 1;
@@ -512,21 +609,96 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
                 rect,
                 priority
               });
+              console.log(`📝 Created annotation with font: "${familyName}" for element with text: "${element.textContent?.trim().substring(0, 30)}..."`);
               break;
             }
           }
         }
       });
       
-      // Sort by priority and limit to reasonable number
+      // Sort by priority and apply sectional selection
       annotations.sort((a, b) => b.priority - a.priority);
-      const maxAnnotations = Math.min(100, annotations.length); // Increased from 50 to 100
-      const selectedAnnotations = annotations.slice(0, maxAnnotations);
+      
+      // Categorize annotations by page sections for better distribution
+      const sectionAnnotations = {
+        header: [] as typeof annotations,
+        main: [] as typeof annotations,
+        footer: [] as typeof annotations,
+        sidebar: [] as typeof annotations,
+        other: [] as typeof annotations
+      };
+      
+      const viewportHeight = window.innerHeight;
+      const documentHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+      
+      annotations.forEach(annotation => {
+        const element = annotation.element;
+        const rect = annotation.rect;
+        
+        // Check if element is in a semantic section
+        const inHeader = element.closest('header, nav, [role="banner"], [class*="header"], [class*="nav"], [id*="header"], [id*="nav"]');
+        const inFooter = element.closest('footer, [role="contentinfo"], [class*="footer"], [id*="footer"]');
+        const inSidebar = element.closest('aside, [role="complementary"], [class*="sidebar"], [class*="aside"], [id*="sidebar"]');
+        const inMain = element.closest('main, [role="main"], [class*="main"], [class*="content"]');
+        
+        // Position-based classification as fallback
+        const topThird = rect.top < documentHeight * 0.33;
+        const bottomThird = rect.top > documentHeight * 0.67;
+        
+        if (inHeader || (topThird && rect.top < viewportHeight)) {
+          sectionAnnotations.header.push(annotation);
+        } else if (inFooter || bottomThird) {
+          sectionAnnotations.footer.push(annotation);
+        } else if (inSidebar) {
+          sectionAnnotations.sidebar.push(annotation);
+        } else if (inMain || (!topThird && !bottomThird)) {
+          sectionAnnotations.main.push(annotation);
+        } else {
+          sectionAnnotations.other.push(annotation);
+        }
+      });
+      
+      console.log(`📊 Section distribution: Header(${sectionAnnotations.header.length}), Main(${sectionAnnotations.main.length}), Footer(${sectionAnnotations.footer.length}), Sidebar(${sectionAnnotations.sidebar.length}), Other(${sectionAnnotations.other.length})`);
+      
+      // Select annotations ensuring at least one per major section
+      const selectedAnnotations = [];
+      const minPerSection = 1;
+      const maxPerSection = 15; // Reasonable limit per section
+      
+      // Ensure at least one annotation from each section that has content
+      Object.entries(sectionAnnotations).forEach(([sectionName, sectionAnns]) => {
+        if (sectionAnns.length > 0) {
+          // Sort section annotations by priority
+          sectionAnns.sort((a, b) => b.priority - a.priority);
+          
+          // Take at least minPerSection, up to maxPerSection
+          const takeCount = Math.min(
+            Math.max(minPerSection, Math.ceil(sectionAnns.length * 0.3)), // Take 30% of section annotations, but at least 1
+            maxPerSection
+          );
+          
+          selectedAnnotations.push(...sectionAnns.slice(0, takeCount));
+          console.log(`📍 Selected ${takeCount} annotations from ${sectionName} section`);
+        }
+      });
+      
+      // If we have too few annotations overall, add more from the highest priority remaining
+      const maxTotalAnnotations = 80;
+      if (selectedAnnotations.length < 20 && annotations.length > selectedAnnotations.length) {
+        const remaining = annotations.filter(ann => !selectedAnnotations.includes(ann));
+        const additionalNeeded = Math.min(maxTotalAnnotations - selectedAnnotations.length, remaining.length);
+        selectedAnnotations.push(...remaining.slice(0, additionalNeeded));
+        console.log(`📍 Added ${additionalNeeded} additional annotations for better coverage`);
+      }
+      
+      // Final limit
+      const finalAnnotations = selectedAnnotations.slice(0, maxTotalAnnotations);
+      console.log(`📍 Final selection: ${finalAnnotations.length} annotations from ${annotations.length} candidates`);
       
       // Step 2: Group annotations by semantic similarity using fingerprints
-      const semanticGroups = new Map<string, typeof selectedAnnotations>();
+      const semanticGroups = new Map<string, typeof finalAnnotations>();
       
-      selectedAnnotations.forEach((annotation) => {
+      finalAnnotations.forEach((annotation) => {
         const computedStyle = window.getComputedStyle(annotation.element);
         const fingerprint = createElementFingerprint(annotation.element, computedStyle, annotation.font);
         
@@ -536,7 +708,7 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
         semanticGroups.get(fingerprint)!.push(annotation);
       });
       
-      console.log(`Grouped ${selectedAnnotations.length} annotations into ${semanticGroups.size} semantic groups`);
+      console.log(`Grouped ${finalAnnotations.length} annotations into ${semanticGroups.size} semantic groups`);
       
       // Debug: Show group details
       let groupIndex = 0;
@@ -572,7 +744,7 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
         return `${tagName}-${fontFamily}-${textCategory}-${sizeCategory}-${parentTag}`;
       }
       
-      console.log(`Semantic grouping results: ${selectedAnnotations.length} candidates → ${semanticGroups.size} groups → ${groupedAnnotations.length} final annotations`);
+      console.log(`Semantic grouping results: ${finalAnnotations.length} candidates → ${semanticGroups.size} groups → ${groupedAnnotations.length} final annotations`);
       
              // Create visual annotations with borders and labels
        let annotationCount = 0;
@@ -581,9 +753,10 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
          annotation.element.style.outline = `3px solid ${annotation.color}`;
          annotation.element.style.outlineOffset = '2px';
          
-         // Create always-visible font label
-         const label = document.createElement('div');
-         label.textContent = annotation.font;
+                 // Create always-visible font label
+        const label = document.createElement('div');
+        console.log(`🏷️ Creating label with font name: "${annotation.font}"`);
+        label.textContent = annotation.font;
          label.style.position = 'absolute';
          label.style.left = `${annotation.rect.left + window.scrollX}px`;
          label.style.top = `${annotation.rect.top + window.scrollY - 25}px`;
@@ -635,14 +808,46 @@ export async function addFontAnnotations(page: Page, fontAnalysisResult: any): P
          annotationCount++;
        });
       
-      return annotationCount;
+      // Return debug info along with count
+      return {
+        annotationCount,
+        debug: {
+          activeFontsCount: activeFonts.length,
+          downloadedFontsCount: downloadedFonts.length,
+          meaningfulFontsCount: meaningfulFonts.length,
+          meaningfulFontNames: meaningfulFonts.map(f => f.family),
+          downloadedFontFamilies: Array.from(downloadedFontFamilies),
+          fontColorsEntries: Array.from(fontColors.entries()).map(([name, color]) => ({ name, color }))
+        }
+      };
     }, {
       activeFonts: fontAnalysisResult.activeFonts || [],
       downloadedFonts: fontAnalysisResult.downloadedFonts || []
     });
     
-    console.log(`Added ${annotationCount} clean font annotations to page`);
-    return annotationCount;
+    // Extract results and debug info
+    const actualAnnotationCount = typeof annotationCount === 'object' ? annotationCount.annotationCount : annotationCount;
+    const debugInfo = typeof annotationCount === 'object' ? annotationCount.debug : null;
+    
+    console.log(`Added ${actualAnnotationCount} clean font annotations to page`);
+    
+    // Debug: Show what happened inside page.evaluate
+    if (debugInfo) {
+      console.log('🔍 Browser-side debug info:');
+      console.log(`  - Active fonts processed: ${debugInfo.activeFontsCount}`);
+      console.log(`  - Downloaded fonts processed: ${debugInfo.downloadedFontsCount}`);
+      console.log(`  - Meaningful fonts selected: ${debugInfo.meaningfulFontsCount}`);
+      console.log(`  - Meaningful font names: [${debugInfo.meaningfulFontNames.join(', ')}]`);
+      console.log(`  - Downloaded font families: [${debugInfo.downloadedFontFamilies.join(', ')}]`);
+      console.log(`  - Font color map: ${debugInfo.fontColorsEntries.map(e => `"${e.name}"`).join(', ')}`);
+    }
+    
+    // Debug: If no annotations were added, let's understand why
+    if (actualAnnotationCount === 0) {
+      console.log('⚠️ No annotations were added! This suggests a font matching issue.');
+    }
+    
+    return actualAnnotationCount;
     
   } catch (error) {
     console.error('Error adding font annotations:', error);

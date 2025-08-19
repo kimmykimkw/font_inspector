@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
-import { getAllProjects } from "@/lib/models/project";
+import { getAllProjects, getRecentProjectsPaginated, searchProjects } from "@/lib/models/project";
 import { getInspectionsByProjectId } from "@/lib/models/inspection";
 import { createProject } from "@/lib/models/project"; 
 import { formatTimestamp } from "@/lib/server-utils";
 import { getAuthenticatedUser, getAuthorizedUser, createUnauthorizedResponse } from "@/lib/auth-utils";
 import { incrementUserProjectCount } from "@/lib/user-stats";
 import { checkProjectLimit } from "@/lib/limit-checker";
+import { DatabaseFactory } from "@/lib/database-factory";
 import logger from "@/lib/logger";
 
-// GET /api/projects - Fetch all projects for authenticated user
+// GET /api/projects - Fetch projects for authenticated user with pagination support
 export async function GET(request: Request) {
   try {
     logger.debug("Fetching projects");
@@ -21,15 +22,37 @@ export async function GET(request: Request) {
       return createUnauthorizedResponse();
     }
     
-    logger.debug("Fetching projects for authenticated user");
+    // Parse pagination parameters
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const search = url.searchParams.get('search');
     
-    // Get all projects from Firebase for this user
-    const projects = await getAllProjects(userId);
+    logger.debug(`Fetching projects for authenticated user, page: ${page}, limit: ${limit}${search ? `, search: "${search}"` : ''}`);
+    
+    // Get local database services for the user
+    const { projects: projectService, inspections: inspectionService } = await DatabaseFactory.getServices(userId);
+    
+    let projects;
+    
+    if (search && search.trim()) {
+      // Use search function if search term is provided
+      projects = await projectService.searchProjects(userId, search.trim(), limit);
+    } else {
+      // Get projects from local database for this user (paginated if page/limit provided)
+      const offset = (page - 1) * limit;
+      projects = await projectService.getProjectsByUser(userId, {
+        limit,
+        offset,
+        orderBy: 'createdAt',
+        orderDirection: 'DESC'
+      });
+    }
     
     // Format projects to match the frontend expected structure
     const formattedProjects = await Promise.all(
       projects.map(async (project) => {
-        const inspections = await getInspectionsByProjectId(project.id as string, userId);
+        const inspections = await inspectionService.getInspectionsByProjectId(project.id as string);
         
         return {
           _id: project.id,
@@ -55,8 +78,21 @@ export async function GET(request: Request) {
     
     logger.info(`Found ${projects.length} projects for user`);
     
-    // Return formatted projects
-    return NextResponse.json(formattedProjects);
+    // Return formatted projects with pagination metadata if paginated or searching
+    if (page > 1 || limit !== 50 || search) {
+      return NextResponse.json({
+        data: formattedProjects,
+        pagination: {
+          page: page,
+          limit: limit,
+          hasMore: projects.length === limit
+        },
+        isSearch: !!search
+      });
+    } else {
+      // Return legacy format for backward compatibility
+      return NextResponse.json(formattedProjects);
+    }
   } catch (error) {
     logger.error("Error fetching projects:", error);
     
@@ -148,9 +184,12 @@ export async function POST(request: Request) {
       );
     }
     
-    // Create project in Firebase with inspectionIds if provided and associate with user
+    // Get local database services for the user
+    const { projects: projectService } = await DatabaseFactory.getServices(userId);
+    
+    // Create project in local database with inspectionIds if provided and associate with user
     logger.debug(`Creating project: "${body.name}"`);
-    const project = await createProject({
+    const project = await projectService.createProject({
       name: body.name,
       description: body.description || "",
       userId: userId, // Associate project with authenticated user
@@ -159,10 +198,10 @@ export async function POST(request: Request) {
     
     logger.info(`Project created successfully: ${project.name}`);
     
-    // Update user stats
+    // IMMEDIATELY update Firebase user stats (real-time requirement)
     try {
       await incrementUserProjectCount(userId);
-      logger.debug(`User stats updated`);
+      logger.debug(`Firebase user stats updated`);
     } catch (logError) {
       logger.error(`Error updating stats:`, logError);
       // Don't fail the request if logging fails

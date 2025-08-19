@@ -101,6 +101,59 @@ export const getAllProjects = async (userId?: string): Promise<Project[]> => {
   });
 };
 
+// Get paginated projects for a specific user (server-side pagination)
+export const getRecentProjectsPaginated = async (limit = 50, userId?: string, page = 1): Promise<Project[]> => {
+  try {
+    console.log(`Querying 'projects' collection with limit: ${limit}${userId ? ` for user: ${userId}` : ''}`);
+    
+    const collectionRef = collections.projects;
+    let query: FirebaseFirestore.Query = collectionRef;
+    
+    if (userId) {
+      query = query.where('userId', '==', userId);
+    }
+    
+    // Add ordering by createdAt descending (most recent first) BEFORE pagination
+    query = query.orderBy('createdAt', 'desc');
+    
+    // Calculate offset for pagination
+    const offset = (page - 1) * limit;
+    
+    // Apply limit and offset for pagination
+    query = query.limit(limit).offset(offset);
+    
+    console.log(`Querying${userId ? ` with userId filter` : ''} to get ${limit} documents (page ${page}, offset ${offset})`);
+    const snapshot = await query.get();
+    console.log(`Query returned ${snapshot.docs.length} documents`);
+    
+    const results = snapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        
+        if (userId && (!data.userId || data.userId !== userId)) {
+          console.warn(`Skipping project ${doc.id} - userId mismatch or missing: expected ${userId}, got ${data.userId}`);
+          return null;
+        }
+        
+        const project = {
+          id: doc.id,
+          ...data,
+        } as Project;
+        
+        return project;
+      })
+      .filter(project => project !== null);
+    
+    console.log(`Returning ${results.length} project records after conversion and filtering (page ${page})`);
+    
+    // Results are already sorted by Firestore orderBy, no need to sort again
+    return results;
+  } catch (error) {
+    console.error("Error in getRecentProjectsPaginated:", error);
+    throw error;
+  }
+};
+
 // Get recent projects for a specific user
 export const getRecentProjects = async (limit = 10, userId?: string): Promise<Project[]> => {
   // Get all projects and then limit in memory to avoid composite index
@@ -151,6 +204,64 @@ export const addInspectionToProject = async (projectId: string, inspectionId: st
   } catch (error) {
     console.error('Error adding inspection to project:', error);
     return false;
+  }
+};
+
+// Search projects by name with simple text matching
+export const searchProjects = async (searchTerm: string, limit = 50, userId?: string, page = 1): Promise<Project[]> => {
+  try {
+    console.log(`Searching projects for term: "${searchTerm}"${userId ? ` for user: ${userId}` : ''}`);
+    
+    let query: FirebaseFirestore.Query = collections.projects;
+    
+    if (userId) {
+      query = query.where('userId', '==', userId);
+    }
+    
+    // For simple text matching, we'll get all user's projects and filter client-side
+    // This is because Firestore doesn't support case-insensitive contains queries
+    const snapshot = await query.get();
+    
+    const searchTermLower = searchTerm.toLowerCase();
+    const matchingProjects = snapshot.docs
+      .map(convertProject)
+      .filter((project): project is Project => {
+        if (!project) return false;
+        return project.name.toLowerCase().includes(searchTermLower) ||
+               (project.description && project.description.toLowerCase().includes(searchTermLower));
+      })
+      .sort((a, b) => {
+        const aTime = a.createdAt instanceof Timestamp ? a.createdAt.toDate() : new Date(a.createdAt);
+        const bTime = b.createdAt instanceof Timestamp ? b.createdAt.toDate() : new Date(b.createdAt);
+        return bTime.getTime() - aTime.getTime(); // Descending order
+      });
+    
+    // Apply pagination
+    const offset = (page - 1) * limit;
+    const paginatedResults = matchingProjects.slice(offset, offset + limit);
+    
+    console.log(`Found ${matchingProjects.length} matching projects, returning ${paginatedResults.length} for page ${page}`);
+    return paginatedResults;
+  } catch (error) {
+    console.error('Error searching projects:', error);
+    throw error;
+  }
+};
+
+// Get total count of projects for a user
+export const getTotalProjectCount = async (userId?: string): Promise<number> => {
+  try {
+    let query: FirebaseFirestore.Query = collections.projects;
+    
+    if (userId) {
+      query = query.where('userId', '==', userId);
+    }
+    
+    const snapshot = await query.get();
+    return snapshot.size;
+  } catch (error) {
+    console.error('Error getting total project count:', error);
+    return 0;
   }
 };
 

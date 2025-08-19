@@ -187,7 +187,7 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Local File Management**: File system operations for screenshot storage and retrieval via Electron IPC
 - **Font Metadata Analysis**: opentype.js and fontkit for comprehensive font metadata extraction
 - **API Framework**: Express.js
-- **Database**: Firebase/Firestore for storing user-specific inspection results and project data (excluding screenshots for cost optimization)
+- **Local Database**: SQLite with better-sqlite3 for storing user-specific inspection results and project data locally
 - **Authentication**: Firebase Auth for user verification and JWT token validation
 - **Chrome Management**: Automatic Chrome/Chromium executable detection and path resolution
 
@@ -195,9 +195,26 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Framework**: Next.js (separate web application)
 - **Styling**: Tailwind CSS with Shadcn/UI components
 - **Authentication**: Firebase Authentication with admin role verification
-- **Database**: Shared Firebase/Firestore with main application (admin collections)
+- **Database**: Firebase/Firestore for admin collections (user management, permissions, statistics)
 - **Deployment**: Independent deployment from main desktop application
 - **Security**: Role-based access control and admin-only routes
+
+### Database Architecture:
+- **Local Data Storage**: SQLite databases stored locally on user's machine (`~/FontInspector/databases/{userId}.db`)
+- **User Data Isolation**: Each user has their own SQLite database file for complete data separation
+- **Firebase Integration**: User authentication, permissions, usage statistics, and admin data stored in Firebase
+- **Hybrid Approach**: Inspection and project data stored locally; user management and stats stored in Firebase
+- **Real-Time Statistics**: Firebase user stats updated immediately after each local database operation
+- **Cost Optimization**: Eliminates Firebase storage costs for inspection data while maintaining authentication and admin features
+- **Performance Benefits**: Faster local data access, no network latency for historical data, offline data viewing capability
+
+### Database Naming Conventions:
+- **SQLite Schema**: Uses snake_case naming convention for all column names (`created_at`, `updated_at`, `user_id`, `project_id`, `inspection_ids`, `downloaded_fonts`, `font_face_declarations`, `active_fonts`, `screenshot_original`, `screenshot_annotated`, `screenshot_captured_at`, `screenshot_dimensions`, `screenshot_annotation_count`)
+- **TypeScript Interfaces**: Uses camelCase naming convention for all properties (`createdAt`, `updatedAt`, `userId`, `projectId`, `inspectionIds`, `downloadedFonts`, `fontFaceDeclarations`, `activeFonts`, `screenshots.original`, `screenshots.annotated`, `screenshots.capturedAt`, `screenshots.dimensions`, `screenshots.annotationCount`)
+- **Conversion Layer**: Automatic mapping between snake_case database columns and camelCase TypeScript properties through dedicated conversion methods (`convertToSQLiteFormat()` and `convertFromSQLiteFormat()`)
+- **Query Mapping**: Dynamic SQL queries use column mapping to convert camelCase API parameters to snake_case database columns (`orderBy: 'createdAt'` → `ORDER BY created_at`)
+- **API Consistency**: All API endpoints maintain camelCase naming for consistency with JavaScript/TypeScript conventions while internally using proper database naming
+- **Schema Compatibility**: Database schema mirrors original Firebase structure but with proper SQL naming conventions for optimal database performance
 
 ## Key Functionalities
 
@@ -391,7 +408,23 @@ The admin system is a separate Next.js web application that provides comprehensi
 
 ## Recent Major Updates
 
-### Multi-Page Inspection Feature (Latest)
+### Database System Overhaul (Latest)
+- **Local SQLite Implementation**: Complete migration from Firebase/Firestore to local SQLite databases for inspection and project data storage
+- **Cost Optimization**: Eliminated Firebase storage costs by moving all inspection data to local storage while maintaining authentication and admin features
+- **User Data Isolation**: Each user gets their own SQLite database file (`~/FontInspector/databases/{userId}.db`) for complete data separation
+- **Hybrid Architecture**: Local SQLite for data storage, Firebase for authentication, user permissions, and usage statistics
+- **Real-Time Statistics**: Firebase user stats updated immediately after each local database operation to maintain real-time usage tracking
+- **Performance Enhancement**: Faster data access from local SQLite database with no network latency for historical data retrieval
+- **Fresh Start Approach**: No data migration from Firebase - users start with clean local databases for simplified implementation
+- **Naming Convention System**: Implemented comprehensive mapping between database snake_case columns (`created_at`, `user_id`) and TypeScript camelCase interfaces (`createdAt`, `userId`)
+- **Database Services**: Built complete service layer with LocalInspectionService and LocalProjectService for CRUD operations
+- **DatabaseFactory Pattern**: Centralized management of user-specific database instances with proper initialization and cleanup
+- **Schema Mirroring**: SQLite schema perfectly mirrors original Firebase structure with proper indexes for performance optimization
+- **Authentication Integration**: All database operations require valid Firebase authentication tokens for security
+- **Offline Data Access**: Users can view historical inspection data without internet connection while authentication is still required for new inspections
+- **Storage Benefits**: No Firebase document limits, unlimited local storage capacity, complete user control over their data
+
+### Multi-Page Inspection Feature
 - **Automated Page Discovery**: Implemented comprehensive multi-page inspection capability allowing users to analyze 5-10 pages from any website automatically
 - **Intelligent Discovery Engine**: Advanced page discovery system using multiple strategies:
   - **Sitemap Integration**: Automatic sitemap.xml parsing with priority-based page ranking
@@ -414,7 +447,7 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Inspection Service Integration**: Seamlessly integrated metadata extraction into existing font processing pipeline with graceful error handling
 - **Enhanced CSV Exports**: Updated CSV export functionality to include complete font metadata for compliance reporting
 - **Embedding Permissions Analysis**: Advanced analysis of OS/2 table fsType bits to determine web embedding rights
-- **Database Persistence**: Complete metadata is saved to Firestore and retrieved for historical analysis
+- **Database Persistence**: Complete metadata is saved to local SQLite database and retrieved for historical analysis
 - **Performance Optimization**: Efficient metadata extraction with ~100-200ms overhead per font file
 - **Error Resilience**: Graceful degradation ensures inspections continue even if metadata extraction fails
 - **Business Value**: Provides crucial tools for font license compliance auditing and legal evidence gathering

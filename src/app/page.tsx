@@ -5,6 +5,7 @@ import { UrlInputForm } from "@/components/UrlInputForm";
 import { InspectionQueue } from "@/components/InspectionQueue";
 import ProjectInputForm from "@/components/ProjectInputForm";
 import { ProjectList } from "@/components/ProjectList";
+import AnnouncementBanner from "@/components/AnnouncementBanner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AuthWrapper } from "@/components/auth/AuthWrapper";
 import { Globe, FolderPlus } from "lucide-react";
@@ -14,6 +15,10 @@ export default function Home() {
     <AuthWrapper>
       <div className="w-full max-w-3xl mx-auto">
         <WelcomeBanner />
+        
+        {/* Announcement Section */}
+        <AnnouncementBanner className="mb-6" />
+        
         <div className="flex flex-col gap-8 mb-8">
           <Tabs defaultValue="url" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">

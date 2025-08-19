@@ -3,6 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { useInspection } from "@/contexts/InspectionContext";
 import { Button } from "./ui/button";
+import { LongRunningInspectionIndicator } from "./LongRunningInspectionIndicator";
 
 export function InspectionQueue() {
   const { queue } = useInspection();
@@ -25,15 +26,32 @@ export function InspectionQueue() {
     return error;
   };
 
+  // Find processing inspections to show indicator (show for all processing, not just long-running)
+  const processingInspections = queue.filter(item => 
+    item.status === 'processing'
+  );
+
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle>Inspection Queue</CardTitle>
-        <CardDescription>Websites currently being analyzed</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {queue.map((item) => (
+    <div className="w-full space-y-4">
+      {/* Show processing inspection indicators */}
+      {processingInspections.map((item) => (
+        <LongRunningInspectionIndicator
+          key={`long-running-${item.id}`}
+          isVisible={true}
+          url={item.url}
+          startTime={item.startTime}
+        />
+      ))}
+
+      {/* Regular inspection queue */}
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>Inspection Queue</CardTitle>
+          <CardDescription>Websites currently being analyzed</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {queue.map((item) => (
             <div key={item.id} className="border rounded-md p-4">
               <div className="flex justify-between mb-2">
                 <span className="font-medium">{item.url}</span>
@@ -78,8 +96,9 @@ export function InspectionQueue() {
               )}
             </div>
           ))}
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 } 

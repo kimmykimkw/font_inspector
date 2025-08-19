@@ -40,17 +40,14 @@ export interface ActiveFont {
   preview?: string;
 }
 
-// Enhanced font family detection with metadata priority and comprehensive debugging
+// Simplified font family detection using the new matching logic
 export function findFontFamilyFromCSS(
   fontUrl: string, 
   fontFaceDeclarations: FontFaceDeclaration[],
   metadata?: FontMetadata | null,
   debugContext: string = 'CSV Export'
 ): string {
-  // Debug logging
   console.log(`${debugContext}: Processing font URL:`, fontUrl);
-  console.log(`${debugContext}: Has metadata:`, !!metadata);
-  console.log(`${debugContext}: Available @font-face declarations:`, fontFaceDeclarations?.length || 0);
   
   // PRIORITY 1: Use metadata font name (most accurate)
   if (metadata?.fontName) {
@@ -59,56 +56,46 @@ export function findFontFamilyFromCSS(
   }
   
   if (!fontFaceDeclarations?.length) {
-    console.warn(`${debugContext}: No @font-face declarations available - this indicates a data retrieval issue`);
+    console.warn(`${debugContext}: No @font-face declarations available`);
     return extractFallbackNameFromUrl(fontUrl, debugContext);
   }
 
-  // Log all available font families for debugging
-  const availableFamilies = fontFaceDeclarations.map(d => d.family).filter(Boolean);
-  console.log(`${debugContext}: Available font families:`, availableFamilies);
+  // PRIORITY 2: Match URL with @font-face declarations using simplified logic
+  for (const declaration of fontFaceDeclarations) {
+    if (!declaration.source || !declaration.family) continue;
 
-  // PRIORITY 2: Try to match the font URL with @font-face declarations
-  for (let i = 0; i < fontFaceDeclarations.length; i++) {
-    const declaration = fontFaceDeclarations[i];
-    console.log(`${debugContext}: Checking declaration ${i + 1}:`, {
-      family: declaration.family,
-      source: declaration.source?.substring(0, 100) + '...' // Truncate for readability
-    });
-
-    if (declaration.source && declaration.family) {
-      // Check if the font URL is referenced in the @font-face source
-      const sourceUrls = declaration.source.match(/url\(['"]?([^'")\s]+)['"]?\)/gi);
-      
-      if (sourceUrls) {
-        console.log(`${debugContext}: Found ${sourceUrls.length} URL(s) in @font-face source`);
-        
-        for (const sourceUrl of sourceUrls) {
-          // Extract the actual URL from url() declaration
-          const urlMatch = sourceUrl.match(/url\(['"]?([^'")\s]+)['"]?\)/i);
-          if (urlMatch && urlMatch[1]) {
-            const cssUrl = urlMatch[1];
-            console.log(`${debugContext}: Comparing font URL "${fontUrl}" with CSS URL "${cssUrl}"`);
-            
-            // Check if the font URL matches or ends with the CSS URL
-            if (fontUrl === cssUrl || 
-                fontUrl.endsWith(cssUrl) || 
-                cssUrl.endsWith(fontUrl.split('/').pop() || '') ||
-                fontUrl.includes(cssUrl.split('/').pop() || '')) {
-              console.log(`${debugContext}: ✅ Found font family match: "${declaration.family}" for URL: ${fontUrl}`);
-              return declaration.family.replace(/["']/g, '').trim();
-            }
+    // Extract URLs from @font-face src declaration
+    const sourceUrls = declaration.source.match(/url\(['"]?([^'")\s]+)['"]?\)/gi);
+    
+    if (sourceUrls) {
+      for (const sourceUrl of sourceUrls) {
+        const urlMatch = sourceUrl.match(/url\(['"]?([^'")\s]+)['"]?\)/i);
+        if (urlMatch?.[1]) {
+          const cssUrl = urlMatch[1];
+          
+          // Use simplified URL matching logic
+          if (urlsMatch(fontUrl, cssUrl)) {
+            console.log(`${debugContext}: ✅ Found font family match: "${declaration.family}" for URL: ${fontUrl}`);
+            return declaration.family.replace(/["']/g, '').trim();
           }
         }
-      } else {
-        console.log(`${debugContext}: No URLs found in @font-face source`);
       }
     }
   }
 
   console.warn(`${debugContext}: ❌ No font family match found for URL: ${fontUrl} - using fallback`);
-  
-  // PRIORITY 3: Enhanced fallback from filename
   return extractFallbackNameFromUrl(fontUrl, debugContext);
+}
+
+// Helper function for URL matching (extracted from font-matching.ts)
+function urlsMatch(downloadedUrl: string, cssUrl: string): boolean {
+  if (downloadedUrl === cssUrl) return true;
+  if (downloadedUrl.endsWith(cssUrl) || cssUrl.endsWith(downloadedUrl)) return true;
+  
+  const downloadedFilename = downloadedUrl.split('/').pop()?.split('?')[0] || '';
+  const cssFilename = cssUrl.split('/').pop()?.split('?')[0] || '';
+  
+  return !!(downloadedFilename && cssFilename && downloadedFilename === cssFilename);
 }
 
 // Helper function to extract fallback name from URL

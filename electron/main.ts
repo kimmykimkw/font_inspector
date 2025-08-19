@@ -624,51 +624,15 @@ class ElectronApp {
       return app.getVersion();
     });
 
-    // Update control handlers
-    ipcMain.handle('app:downloadUpdate', async () => {
-      try {
-        console.log('[IPC] Starting update download...');
-        await autoUpdater.downloadUpdate();
-        console.log('[IPC] Update download initiated successfully');
-        return { success: true };
-      } catch (error) {
-        console.error('[IPC] Failed to download update:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-      }
-    });
-
-    ipcMain.handle('app:installUpdate', async () => {
-      try {
-        console.log('[IPC] Starting update installation...');
-        autoUpdater.quitAndInstall();
-        console.log('[IPC] Update installation initiated - app will restart');
-        return { success: true };
-      } catch (error) {
-        console.error('[IPC] Failed to install update:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-      }
-    });
-
-    ipcMain.handle('app:dismissUpdate', async () => {
-      try {
-        console.log('[IPC] Update dialog dismissed by user');
-        return { success: true };
-      } catch (error) {
-        console.error('[IPC] Failed to dismiss update:', error);
-        return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-      }
-    });
+    // Note: Update control is now handled via native dialogs, no IPC needed
   }
 
   private initializeAutoUpdater(): void {
     // Set up auto-updater event listeners
     this.setupAutoUpdaterListeners();
     
-    // Disable auto-update checks since we don't have a proper Mac app license
-    console.log('Auto-updates are temporarily disabled');
+    console.log('Auto-updates initialized with native dialogs');
     
-    // Commented out auto-update checks
-    /*
     // Check for updates when app is ready
     app.whenReady().then(() => {
       // Wait a bit after startup to check for updates
@@ -681,7 +645,6 @@ class ElectronApp {
     setInterval(() => {
       autoUpdater.checkForUpdatesAndNotify();
     }, 60 * 60 * 1000);
-    */
   }
 
   private async checkForUpdatesManually(): Promise<void> {
@@ -691,7 +654,8 @@ class ElectronApp {
         type: 'info',
         title: 'Development Mode',
         message: 'Update checking is disabled in development mode.',
-        buttons: ['OK']
+        buttons: ['OK'],
+        icon: join(__dirname, 'assets', 'icon.png')
       });
       return;
     }
@@ -706,13 +670,18 @@ class ElectronApp {
     
     try {
       console.log('Starting manual update check...');
-      // The regular auto-updater listeners will handle sending events to the renderer
+      // The regular auto-updater listeners will handle showing dialogs
       await autoUpdater.checkForUpdates();
     } catch (error) {
       console.error('Manual update check failed:', error);
-      // Send error to renderer process
-      this.mainWindow?.webContents.send('app:update-error', {
-        message: error instanceof Error ? error.message : 'Unknown error occurred while checking for updates.'
+      // Show error dialog directly
+      await dialog.showMessageBox(this.mainWindow!, {
+        type: 'error',
+        buttons: ['OK'],
+        title: 'Update Check Failed',
+        message: 'Failed to check for updates',
+        detail: error instanceof Error ? error.message : 'Unknown error occurred while checking for updates.',
+        icon: join(__dirname, 'assets', 'icon.png')
       });
     } finally {
       this.isCheckingForUpdates = false;
@@ -721,37 +690,57 @@ class ElectronApp {
   }
 
   private setupAutoUpdaterListeners(): void {
-    autoUpdater.on('update-available', (info) => {
+    autoUpdater.on('update-available', async (info) => {
       console.log('[AutoUpdater] Update available:', info.version);
-      // Send to renderer process for in-app notification
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('app:update-available', {
-          version: info.version,
-          currentVersion: app.getVersion(),
-          releaseDate: info.releaseDate,
-          files: info.files
-        });
+      
+      // Show native Electron dialog
+      const response = await dialog.showMessageBox(this.mainWindow!, {
+        type: 'info',
+        buttons: ['Download Now', 'Later'],
+        defaultId: 0,
+        title: 'Update Available',
+        message: `Font Inspector ${info.version} is available`,
+        detail: `You are currently running version ${app.getVersion()}. Would you like to download the update now?`,
+        icon: join(__dirname, 'assets', 'icon.png')
+      });
+
+      if (response.response === 0) {
+        // User clicked "Download Now"
+        console.log('[AutoUpdater] User chose to download update');
+        autoUpdater.downloadUpdate();
+      } else {
+        console.log('[AutoUpdater] User chose to download later');
       }
     });
 
-    autoUpdater.on('update-not-available', (info) => {
+    autoUpdater.on('update-not-available', async (info) => {
       console.log('[AutoUpdater] Update not available:', info.version);
+      
       // Only show notification for manual checks
-      if (this.isManualUpdateCheck && this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('app:update-not-available', {
-          currentVersion: app.getVersion()
+      if (this.isManualUpdateCheck) {
+        await dialog.showMessageBox(this.mainWindow!, {
+          type: 'info',
+          buttons: ['OK'],
+          title: 'No Updates Available',
+          message: 'You are running the latest version',
+          detail: `Font Inspector ${app.getVersion()} is up to date.`,
+          icon: join(__dirname, 'assets', 'icon.png')
         });
       }
     });
 
-    autoUpdater.on('error', (err) => {
+    autoUpdater.on('error', async (err) => {
       console.error('[AutoUpdater] Error in auto-updater:', err);
-      // Send error to renderer process
-      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('app:update-error', {
-          message: err.message || 'Unknown update error'
-        });
-      }
+      
+      // Show error dialog
+      await dialog.showMessageBox(this.mainWindow!, {
+        type: 'error',
+        buttons: ['OK'],
+        title: 'Update Error',
+        message: 'Failed to check for updates',
+        detail: err.message || 'An unknown error occurred while checking for updates.',
+        icon: join(__dirname, 'assets', 'icon.png')
+      });
     });
 
     autoUpdater.on('download-progress', (progressObj) => {
@@ -764,19 +753,37 @@ class ElectronApp {
       
       console.log(`[AutoUpdater] Download progress: ${progress.percent}% (${this.formatBytes(progress.transferred)}/${this.formatBytes(progress.total)}) at ${this.formatBytes(progress.bytesPerSecond)}/s`);
       
-      // Send progress to renderer process
+      // Update window title to show progress (simple progress indicator)
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('app:update-progress', progress);
+        this.mainWindow.setTitle(`Font Inspector - Downloading update... ${progress.percent}%`);
       }
     });
 
-    autoUpdater.on('update-downloaded', (info) => {
+    autoUpdater.on('update-downloaded', async (info) => {
       console.log('[AutoUpdater] Update downloaded:', info.version);
-      // Send to renderer process instead of auto-installing
+      
+      // Reset window title
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.webContents.send('app:update-downloaded', {
-          version: info.version
-        });
+        this.mainWindow.setTitle('Font Inspector');
+      }
+      
+      // Show installation dialog
+      const response = await dialog.showMessageBox(this.mainWindow!, {
+        type: 'info',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+        title: 'Update Ready',
+        message: `Font Inspector ${info.version} has been downloaded`,
+        detail: 'The update will be installed when you restart the application. Would you like to restart now?',
+        icon: join(__dirname, 'assets', 'icon.png')
+      });
+
+      if (response.response === 0) {
+        // User clicked "Restart Now"
+        console.log('[AutoUpdater] User chose to restart and install update');
+        autoUpdater.quitAndInstall();
+      } else {
+        console.log('[AutoUpdater] User chose to restart later');
       }
     });
   }

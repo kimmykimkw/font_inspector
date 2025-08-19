@@ -5,7 +5,7 @@ import { isUserAuthorized } from "@/lib/models/admin-service";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email } = body;
+    const { email, userId } = body;
 
     // Validate input
     if (!email) {
@@ -15,8 +15,8 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if user is authorized
-    const authorized = await isUserAuthorized(email);
+    // Check if user is authorized (with optional userId for post-migration users)
+    const authorized = await isUserAuthorized(email, userId);
 
     return NextResponse.json({
       authorized,

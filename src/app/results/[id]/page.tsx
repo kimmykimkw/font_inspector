@@ -9,6 +9,14 @@ import { ResizableTable, ResizableHeader, ResizableCell } from "@/components/ui/
 import { toast } from "sonner";
 import { useInspection } from "@/contexts/InspectionContext";
 import { generateFontInspectionCSV, downloadCSV } from '@/lib/csv-utils';
+import { 
+  findMatchingFontFile, 
+  getCorrectFontFamily, 
+  findAllMatchingFontFiles,
+  type FontFile as MatchingFontFile,
+  type ActiveFont as MatchingActiveFont,
+  type FontFaceDeclaration as MatchingFontFaceDeclaration
+} from '@/lib/font-matching';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { 
@@ -186,216 +194,59 @@ function getFullSystemFontName(fontFamily: string) {
   return systemFontMap[fontFamily] || fontFamily;
 }
 
-// Enhanced font name cleaning function for better matching
-function cleanFontNameForMatching(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/["'\s_-]/g, '') // Remove quotes, spaces, underscores, hyphens
-    .replace(/(regular|bold|light|medium|semibold|extrabold|black|thin|italic|oblique|normal)$/i, '') // Remove weight descriptors at end
-    .replace(/variable$/i, '') // Remove variable descriptor
-    .replace(/\d+$/i, '') // Remove trailing numbers
-    .trim();
-}
-
-// Enhanced abbreviation matching function
-function matchesAbbreviation(word1: string, word2: string): boolean {
-  // Handle cases like "LGEI" vs "LG_EI" or "LG-EI"
-  const abbrev1 = word1.replace(/[^a-zA-Z]/g, '').toLowerCase();
-  const abbrev2 = word2.replace(/[^a-zA-Z]/g, '').toLowerCase();
-  
-  // Direct abbreviation match
-  if (abbrev1 === abbrev2) return true;
-  
-  // Check if one is an abbreviation of the other
-  // e.g., "LGEI" could match "LG_EI" when underscores are removed
-  const compressed1 = abbrev1.replace(/[aeiou]/g, ''); // Remove vowels for loose matching
-  const compressed2 = abbrev2.replace(/[aeiou]/g, '');
-  
-  return compressed1 === compressed2 && compressed1.length > 2;
-}
-
-// Normalize font family names for intelligent grouping
-function normalizeFontFamilyForGrouping(fontFamily: string): string {
-  // Remove common suffixes like "Text", "Headline", "Display", "Sans", "Serif"
-  const normalized = fontFamily
+// Font name normalization for grouping (simplified)
+function normalizeFontName(fontFamily: string): string {
+  // Remove common suffixes and clean up the name
+  return fontFamily
     .replace(/\s+(Text|Headline|Display|Sans|Serif|Regular|Bold|Light|Medium)$/i, '')
-    .replace(/\s+/g, ' ')
+    .replace(/["']/g, '')
     .trim();
-  
-  // Handle specific cases like "LGEI" variations -> "LG EI"
-  if (normalized.match(/^LG\s*EI?$/i)) {
-    return 'LG EI';
-  }
-  
-  // Handle other common patterns
-  if (normalized.match(/^(Times|Arial|Helvetica|Georgia|Verdana)$/i)) {
-    return normalized;
-  }
-  
-  return normalized;
 }
 
-// Get correct font family name using downloaded font metadata when available
-function getCorrectFontFamily(activeFont: ActiveFont, downloadedFonts: any[]): string {
-  if (!downloadedFonts?.length) {
-    return normalizeFontFamilyForGrouping(activeFont.family);
-  }
-  
-  // Find matching downloaded font using the same logic as the matching algorithm
-  const matchingFont = downloadedFonts.find(downloadedFont => {
-    // Enhanced filename extraction
-    let fontFileName = '';
-    
-    if (downloadedFont.name && downloadedFont.name.length > 5) {
-      fontFileName = downloadedFont.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
-    } else if (downloadedFont.url) {
-      const urlParts = downloadedFont.url.split('/');
-      const filename = urlParts[urlParts.length - 1] || '';
-      fontFileName = filename.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
-    } else {
-      fontFileName = downloadedFont.name || '';
-    }
-
-    // Use the enhanced cleaning function for both names
-    const cleanFontFileName = cleanFontNameForMatching(fontFileName);
-    const cleanActiveFontName = cleanFontNameForMatching(activeFont.family);
-    
-    // PRIORITY 1: Exact metadata match
-    const metadataMatch = downloadedFont.metadata?.fontName && 
-      cleanFontNameForMatching(downloadedFont.metadata.fontName) === cleanActiveFontName;
-    
-    // PRIORITY 2: Exact name match
-    const exactMatch = cleanActiveFontName === cleanFontFileName;
-    
-    // PRIORITY 3: Strict substring match
-    const strictSubstringMatch = 
-      (cleanActiveFontName.includes(cleanFontFileName) && cleanFontFileName.length > 3) ||
-      (cleanFontFileName.includes(cleanActiveFontName) && cleanActiveFontName.length > 3);
-    
-    // PRIORITY 4: Enhanced word-based match with abbreviation support
-    const activeFontWords = activeFont.family.toLowerCase().split(/[-_\s]+/).filter(w => w.length > 0);
-    const fileNameWords = fontFileName.toLowerCase().split(/[-_\s]+/).filter(w => w.length > 0);
-    
-    let wordMatch = false;
-    if (activeFontWords.length > 0 && fileNameWords.length > 0) {
-      const standardWordMatch = activeFontWords.some(activeWord => 
-        fileNameWords.some(fileWord => 
-          activeWord === fileWord || 
-          activeWord.includes(fileWord) || 
-          fileWord.includes(activeWord)
-        )
-      );
-      
-      const abbreviationMatch = activeFontWords.some(activeWord => 
-        fileNameWords.some(fileWord => matchesAbbreviation(activeWord, fileWord))
-      );
-      
-      const hasSignificantWord = Math.max(...activeFontWords.map(w => w.length)) > 2 &&
-                                Math.max(...fileNameWords.map(w => w.length)) > 2;
-      
-      wordMatch = hasSignificantWord && (standardWordMatch || abbreviationMatch);
-    }
-
-    return metadataMatch || exactMatch || strictSubstringMatch || wordMatch;
-  });
-  
-  // If we found a matching downloaded font, use its family name from metadata or filename
-  if (matchingFont) {
-    // PRIORITY 1: Use metadata font family if available
-    if (matchingFont.metadata?.fontFamily) {
-      return matchingFont.metadata.fontFamily;
-    }
-    
-    // PRIORITY 2: Use metadata font name if available
-    if (matchingFont.metadata?.fontName) {
-      return normalizeFontFamilyForGrouping(matchingFont.metadata.fontName);
-    }
-    
-    // PRIORITY 3: Extract family from filename
-    if (matchingFont.name) {
-      const baseName = matchingFont.name.replace(/\.(woff2?|ttf|otf|eot)$/i, '');
-      return normalizeFontFamilyForGrouping(baseName.replace(/[-_]/g, ' '));
-    }
-  }
-  
-  // Fallback to normalized active font family
-  return normalizeFontFamilyForGrouping(activeFont.family);
+// Normalize font family names for intelligent grouping (simplified)
+function normalizeFontFamilyForGrouping(fontFamily: string): string {
+  return normalizeFontName(fontFamily);
 }
 
-// Helper function to find matching downloaded font file
-function findMatchingFontFile(inspection: any, activeFont: ActiveFont) {
-  if (!inspection.downloadedFonts?.length) {
+// Get correct font family name using simplified CSS @font-face matching
+function getCorrectFontFamilyLocal(
+  activeFont: ActiveFont, 
+  downloadedFonts: FontFile[], 
+  fontFaceDeclarations: any[]
+): string {
+  // Convert to matching types
+  const matchingActiveFont = activeFont as MatchingActiveFont;
+  const matchingDownloadedFonts = downloadedFonts.filter(font => font.source).map(font => ({
+    ...font,
+    source: font.source || 'Unknown'
+  })) as MatchingFontFile[];
+  const matchingFontFaceDeclarations = fontFaceDeclarations as MatchingFontFaceDeclaration[];
+  
+  // Use the new simplified matching logic
+  const correctFamily = getCorrectFontFamily(matchingActiveFont, matchingDownloadedFonts, matchingFontFaceDeclarations);
+  return normalizeFontFamilyForGrouping(correctFamily);
+}
+
+// Helper function to find matching downloaded font file using simplified logic
+function findMatchingFontFileLocal(inspection: any, activeFont: ActiveFont): FontFile | null {
+  if (!inspection.downloadedFonts?.length || !inspection.fontFaceDeclarations?.length) {
     return null;
   }
   
-  // Try to find a downloaded font that matches this active font
-  const matchingFont = inspection.downloadedFonts.find((downloadedFont: FontFile) => {
-    const activeFontName = cleanFontNameForMatching(activeFont.family);
-    
-    // Enhanced filename extraction
-    let fontFileName = '';
-    
-    // Try to extract filename from URL if name is not a proper filename
-    if (downloadedFont.name && downloadedFont.name.length > 5) {
-      // Use the name as-is if it looks like a proper filename
-      fontFileName = downloadedFont.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
-    } else if (downloadedFont.url) {
-      // Extract filename from URL
-      const urlParts = downloadedFont.url.split('/');
-      const filename = urlParts[urlParts.length - 1] || '';
-      fontFileName = filename.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
-    } else {
-      fontFileName = downloadedFont.name || '';
-    }
-
-    // Use the enhanced cleaning function for both names
-    const cleanFontFileName = cleanFontNameForMatching(fontFileName);
-    const cleanActiveFontName = cleanFontNameForMatching(activeFont.family);
-    
-    // PRIORITY 1: Exact metadata match
-    const metadataMatch = downloadedFont.metadata?.fontName && 
-      cleanFontNameForMatching(downloadedFont.metadata.fontName) === cleanActiveFontName;
-    
-    // PRIORITY 2: Exact name match
-    const exactMatch = cleanActiveFontName === cleanFontFileName;
-    
-    // PRIORITY 3: Strict substring match (only if one fully contains the other)
-    const strictSubstringMatch = 
-      (cleanActiveFontName.includes(cleanFontFileName) && cleanFontFileName.length > 3) ||
-      (cleanFontFileName.includes(cleanActiveFontName) && cleanActiveFontName.length > 3);
-    
-    // PRIORITY 4: Enhanced word-based match with abbreviation support
-    const activeFontWords = activeFont.family.toLowerCase().split(/[-_\s]+/).filter(w => w.length > 0);
-    const fileNameWords = fontFileName.toLowerCase().split(/[-_\s]+/).filter(w => w.length > 0);
-    
-    let wordMatch = false;
-    if (activeFontWords.length > 0 && fileNameWords.length > 0) {
-      // Standard word matching
-      const standardWordMatch = activeFontWords.some(activeWord => 
-        fileNameWords.some(fileWord => 
-          activeWord === fileWord || 
-          activeWord.includes(fileWord) || 
-          fileWord.includes(activeWord)
-        )
-      );
-      
-      // Enhanced abbreviation matching
-      const abbreviationMatch = activeFontWords.some(activeWord => 
-        fileNameWords.some(fileWord => matchesAbbreviation(activeWord, fileWord))
-      );
-      
-      // Ensure we have significant matches (not just short words)
-      const hasSignificantWord = Math.max(...activeFontWords.map(w => w.length)) > 2 &&
-                                Math.max(...fileNameWords.map(w => w.length)) > 2;
-      
-      wordMatch = hasSignificantWord && (standardWordMatch || abbreviationMatch);
-    }
-
-    // Return true only if we have a confident match
-    return metadataMatch || exactMatch || strictSubstringMatch || wordMatch;
-  });
+  // Convert to matching types
+  const matchingActiveFont = activeFont as MatchingActiveFont;
+  const matchingDownloadedFonts = inspection.downloadedFonts.filter((font: FontFile) => font.source).map((font: FontFile) => ({
+    ...font,
+    source: font.source || 'Unknown'
+  })) as MatchingFontFile[];
+  const matchingFontFaceDeclarations = inspection.fontFaceDeclarations as MatchingFontFaceDeclaration[];
   
-  return matchingFont;
+  // Use the new simplified matching logic
+  return findMatchingFontFile(
+    matchingActiveFont, 
+    matchingDownloadedFonts, 
+    matchingFontFaceDeclarations
+  );
 }
 
 export default function ResultsPage() {
@@ -409,6 +260,8 @@ export default function ResultsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [metadataModalOpen, setMetadataModalOpen] = useState(false);
   const [selectedFontMetadata, setSelectedFontMetadata] = useState<any>(null);
+  const [activeFontModalOpen, setActiveFontModalOpen] = useState(false);
+  const [selectedActiveFontData, setSelectedActiveFontData] = useState<any>(null);
 
   // Group fonts by their file name - moved before any conditional returns
   const fontGroups = useMemo(() => {
@@ -417,7 +270,7 @@ export default function ResultsPage() {
     const groups: { [key: string]: ActiveFont[] } = {};
     
     inspection.activeFonts.forEach((font: ActiveFont) => {
-      const matchingFile = findMatchingFontFile(inspection, font);
+      const matchingFile = findMatchingFontFileLocal(inspection, font);
       if (matchingFile) {
         const key = matchingFile.name;
         if (!groups[key]) {
@@ -928,8 +781,11 @@ export default function ResultsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {inspection.downloadedFonts?.length > 0 ? (
-                        inspection.downloadedFonts.map((font: FontFile, index: number) => {
+                      {(inspection.downloadedFonts?.length > 0 || inspection.fontFaceDeclarations?.some((decl: any) => decl.isDynamic)) ? (
+                        [...inspection.downloadedFonts, ...(inspection.fontFaceDeclarations?.filter((decl: any) => decl.isDynamic) || [])].map((font: FontFile | any, index: number) => {
+                          // Check if this is a dynamic font declaration (like Adobe Fonts)
+                          const isDynamicFont = font.isDynamic;
+                          
                           // Helper function to find font family from CSS @font-face declarations
                           const findFontFamilyFromCSS = (fontUrl: string, metadata?: FontMetadata | null) => {
                             // PRIORITY 1: Use metadata font name (most accurate)
@@ -992,31 +848,39 @@ export default function ResultsPage() {
                             return cleanName || 'Unknown';
                           };
 
-                          const fontFamily = findFontFamilyFromCSS(font.url, font.metadata);
+                          // Handle dynamic fonts differently
+                          const fontFamily = isDynamicFont ? font.family : findFontFamilyFromCSS(font.url, font.metadata);
+                          const fontName = isDynamicFont ? font.family : font.name;
+                          const fontFormat = isDynamicFont ? 'Dynamic' : font.format;
+                          const fontSize = isDynamicFont ? 'N/A' : `${(font.size / 1024).toFixed(2)} KB`;
 
                           return (
                             <tr key={index} className="border-b last:border-0 hover:bg-slate-50 transition-colors h-14">
                               <ResizableCell index={0} className="font-medium p-4 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis">{fontFamily}</ResizableCell>
-                              <ResizableCell index={1} className="p-4 text-slate-700 text-sm">{font.name}</ResizableCell>
-                              <ResizableCell index={2} className="p-4 text-slate-700">{font.format}</ResizableCell>
-                              <ResizableCell index={3} className="p-4 text-slate-700 tabular-nums">{(font.size / 1024).toFixed(2)} KB</ResizableCell>
+                              <ResizableCell index={1} className="p-4 text-slate-700 text-sm">{fontName}</ResizableCell>
+                              <ResizableCell index={2} className="p-4 text-slate-700">{fontFormat}</ResizableCell>
+                              <ResizableCell index={3} className="p-4 text-slate-700 tabular-nums">{fontSize}</ResizableCell>
                               <ResizableCell index={4} className="p-4">
                                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                  font.source === "Google Fonts" 
-                                    ? "bg-blue-100 text-blue-800 border border-blue-200" 
-                                    : font.source === "Adobe Fonts"
+                                  (isDynamicFont && font.service === "Adobe Fonts") || font.source === "Adobe Fonts"
                                     ? "bg-red-100 text-red-800 border border-red-200"
+                                    : font.source === "Google Fonts" 
+                                    ? "bg-blue-100 text-blue-800 border border-blue-200" 
                                     : font.source === "Self-hosted"
                                     ? "bg-green-100 text-green-800 border border-green-200"
                                     : font.source === "CDN"
                                     ? "bg-purple-100 text-purple-800 border border-purple-200"
                                     : "bg-gray-100 text-gray-800 border border-gray-200"
                                 }`}>
-                                  {font.source || 'Unknown'}
+                                  {isDynamicFont ? font.service || 'Dynamic Font Service' : font.source || 'Unknown'}
                                 </span>
                               </ResizableCell>
                               <ResizableCell index={5} className="p-4">
-                                {font.metadata ? (
+                                {isDynamicFont ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+                                    Dynamic Font
+                                  </span>
+                                ) : font.metadata ? (
                                   <button
                                     onClick={() => handleViewMetadata(font)}
                                     className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200 hover:bg-green-200 transition-colors cursor-pointer"
@@ -1031,15 +895,21 @@ export default function ResultsPage() {
                                 )}
                               </ResizableCell>
                               <ResizableCell index={6} className="p-4 text-xs">
-                                <a 
-                                  href={font.url} 
-                                  className="text-blue-600 hover:text-blue-800 hover:underline truncate inline-block max-w-full" 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  title={font.url}
-                                >
-                                  {font.url}
-                                </a>
+                                {isDynamicFont ? (
+                                  <span className="text-gray-600 italic">
+                                    Dynamic
+                                  </span>
+                                ) : (
+                                  <a 
+                                    href={font.url} 
+                                    className="text-blue-600 hover:text-blue-800 hover:underline truncate inline-block max-w-full" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    title={font.url}
+                                  >
+                                    {font.url}
+                                  </a>
+                                )}
                               </ResizableCell>
                             </tr>
                           );
@@ -1072,7 +942,7 @@ export default function ResultsPage() {
                 {inspection.activeFonts?.length > 0 ? (() => {
                   // STEP 1: Create enhanced font groups using correct font family names
                   const enhancedFontGroups = inspection.activeFonts.reduce((groups: Record<string, ActiveFont[]>, font: ActiveFont) => {
-                    const correctFontFamily = getCorrectFontFamily(font, inspection.downloadedFonts);
+                    const correctFontFamily = getCorrectFontFamilyLocal(font, inspection.downloadedFonts, inspection.fontFaceDeclarations);
                     if (!groups[correctFontFamily]) {
                       groups[correctFontFamily] = [];
                     }
@@ -1093,64 +963,16 @@ export default function ResultsPage() {
                         );
                         const percentage = totalCount > 0 ? (groupElementCount / totalCount) * 100 : 0;
 
-                        // Find all matching font files for this group
+                        // Find all matching font files for this group using simplified logic
                         const allMatchingFontFiles = groupFonts.flatMap(font => {
-                          return inspection.downloadedFonts.filter(downloadedFont => {
-                            // Enhanced filename extraction
-                            let fontFileName = '';
-                            
-                            if (downloadedFont.name && downloadedFont.name.length > 5) {
-                              fontFileName = downloadedFont.name.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
-                            } else if (downloadedFont.url) {
-                              const urlParts = downloadedFont.url.split('/');
-                              const filename = urlParts[urlParts.length - 1] || '';
-                              fontFileName = filename.toLowerCase().replace(/\.(woff2?|ttf|otf|eot)(\?.*)?$/i, '');
-                            } else {
-                              fontFileName = downloadedFont.name || '';
-                            }
-
-                            // Use the enhanced cleaning function for both names
-                            const cleanFontFileName = cleanFontNameForMatching(fontFileName);
-                            const cleanActiveFontName = cleanFontNameForMatching(font.family);
-                            
-                            // PRIORITY 1: Exact metadata match
-                            const metadataMatch = downloadedFont.metadata?.fontName && 
-                              cleanFontNameForMatching(downloadedFont.metadata.fontName) === cleanActiveFontName;
-                            
-                            // PRIORITY 2: Exact name match
-                            const exactMatch = cleanActiveFontName === cleanFontFileName;
-                            
-                            // PRIORITY 3: Strict substring match
-                            const strictSubstringMatch = 
-                              (cleanActiveFontName.includes(cleanFontFileName) && cleanFontFileName.length > 3) ||
-                              (cleanFontFileName.includes(cleanActiveFontName) && cleanActiveFontName.length > 3);
-                            
-                            // PRIORITY 4: Enhanced word-based match with abbreviation support
-                            const activeFontWords = font.family.toLowerCase().split(/[-_\s]+/).filter(w => w.length > 0);
-                            const fileNameWords = fontFileName.toLowerCase().split(/[-_\s]+/).filter(w => w.length > 0);
-                            
-                            let wordMatch = false;
-                            if (activeFontWords.length > 0 && fileNameWords.length > 0) {
-                              const standardWordMatch = activeFontWords.some(activeWord => 
-                                fileNameWords.some(fileWord => 
-                                  activeWord === fileWord || 
-                                  activeWord.includes(fileWord) || 
-                                  fileWord.includes(activeWord)
-                                )
-                              );
-                              
-                              const abbreviationMatch = activeFontWords.some(activeWord => 
-                                fileNameWords.some(fileWord => matchesAbbreviation(activeWord, fileWord))
-                              );
-                              
-                              const hasSignificantWord = Math.max(...activeFontWords.map(w => w.length)) > 2 &&
-                                                        Math.max(...fileNameWords.map(w => w.length)) > 2;
-                              
-                              wordMatch = hasSignificantWord && (standardWordMatch || abbreviationMatch);
-                            }
-
-                            return metadataMatch || exactMatch || strictSubstringMatch || wordMatch;
-                          });
+                          const matchingActiveFont = font as MatchingActiveFont;
+                          const matchingDownloadedFonts = inspection.downloadedFonts.filter((f: FontFile) => f.source).map((f: FontFile) => ({
+                            ...f,
+                            source: f.source || 'Unknown'
+                          })) as MatchingFontFile[];
+                          const matchingFontFaceDeclarations = inspection.fontFaceDeclarations as MatchingFontFaceDeclaration[];
+                          
+                          return findAllMatchingFontFiles(matchingActiveFont, matchingDownloadedFonts, matchingFontFaceDeclarations);
                         });
 
                         // Remove duplicates
@@ -1164,19 +986,64 @@ export default function ResultsPage() {
 
                         const isGrouped = groupFonts.length > 1;
 
+                        // Find the CSS @font-face family name for this group
+                        const getCssFontFaceName = () => {
+                          if (!inspection.fontFaceDeclarations?.length) return null;
+                          
+                          // Try to find a matching @font-face declaration for any font in this group
+                          for (const font of groupFonts) {
+                            const cleanActiveFontName = font.family.toLowerCase().replace(/["']/g, '').trim();
+                            const matchingDeclaration = inspection.fontFaceDeclarations.find(declaration => {
+                              const cleanDeclarationFamily = declaration.family.toLowerCase().replace(/["']/g, '').trim();
+                              return cleanDeclarationFamily === cleanActiveFontName;
+                            });
+                            
+                            if (matchingDeclaration) {
+                              return matchingDeclaration.family.replace(/["']/g, '').trim();
+                            }
+                          }
+                          return null;
+                        };
+
+                        const cssFontFaceName = getCssFontFaceName();
+
+                        // Find matching font-face declarations for this group
+                        const matchingFontFaceDeclarations = inspection.fontFaceDeclarations?.filter((decl: any) => {
+                          const cleanDeclarationFamily = decl.family.toLowerCase().replace(/["']/g, '').trim();
+                          return groupFonts.some(font => {
+                            const cleanActiveFontName = font.family.toLowerCase().replace(/["']/g, '').trim();
+                            return cleanDeclarationFamily === cleanActiveFontName;
+                          });
+                        }) || [];
+
+                        const handleActiveFontClick = () => {
+                          setSelectedActiveFontData({
+                            fontFamily: groupFamily,
+                            elementCount: groupElementCount,
+                            percentage: percentage,
+                            matchingFontFiles: uniqueMatchingFontFiles,
+                            matchingFontFaceDeclarations: matchingFontFaceDeclarations,
+                            activeFonts: groupFonts
+                          });
+                          setActiveFontModalOpen(true);
+                        };
+
                         return (
                           <div 
                             key={groupFamily} 
-                            className={`flex items-center justify-between p-4 rounded-lg border transition-colors ${
+                            className={`flex items-center justify-between p-4 rounded-lg border transition-colors cursor-pointer ${
                               uniqueMatchingFontFiles.length > 0 ? 'hover:brightness-95' : 'hover:bg-slate-100'
                             }`}
                             style={{ backgroundColor: backgroundColor }}
+                            onClick={handleActiveFontClick}
                           >
                             <div className="flex items-center space-x-3">
                               <div className="w-2 h-2 bg-primary rounded-full"></div>
                               <div className="flex flex-col">
                                 <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-semibold text-slate-800">{groupFamily}</h3>
+                                  <h3 className="text-lg font-semibold text-slate-800">
+                                    {cssFontFaceName || groupFamily}
+                                  </h3>
                                   {isGrouped && (
                                     <span className="px-2 py-0.5 text-xs font-medium bg-white/50 rounded-full border border-slate-200">
                                       Alias
@@ -1189,8 +1056,10 @@ export default function ResultsPage() {
                                       <p key={idx} className="text-sm text-slate-600 font-mono">{fontFile.name}</p>
                                     ))}
                                   </div>
+                                ) : matchingFontFaceDeclarations.length > 0 && matchingFontFaceDeclarations.some((decl: any) => decl.isDynamic) ? (
+                                  <p className="text-sm text-slate-500 italic">Dynamic font</p>
                                 ) : (
-                                  <p className="text-sm text-slate-500 italic">System font - {fullSystemFontName}</p>
+                                  <p className="text-sm text-slate-500 italic">No matching font file</p>
                                 )}
                               </div>
                             </div>
@@ -1368,6 +1237,161 @@ export default function ResultsPage() {
           
           <div className="flex justify-end pt-4">
             <Button variant="outline" onClick={() => setMetadataModalOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Active Font Details Modal */}
+      <Dialog open={activeFontModalOpen} onOpenChange={setActiveFontModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Type className="h-5 w-5" />
+              Active Font Details
+            </DialogTitle>
+            <DialogDescription>
+              Detailed information for font family: {selectedActiveFontData?.fontFamily}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedActiveFontData && (
+            <div className="space-y-6 max-h-96 overflow-y-auto">
+              {/* Font Family Overview */}
+              <div className="bg-slate-50 p-4 rounded-lg">
+                <h3 className="text-lg font-semibold mb-2">{selectedActiveFontData.fontFamily}</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-slate-700">Elements using this font:</span>
+                    <span className="ml-2 text-slate-900">{selectedActiveFontData.elementCount}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-slate-700">Usage percentage:</span>
+                    <span className="ml-2 text-slate-900">{selectedActiveFontData.percentage.toFixed(1)}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Font Files */}
+              {selectedActiveFontData.matchingFontFiles?.length > 0 ? (
+                <div>
+                  <h4 className="text-md font-semibold mb-3">Downloaded Font Files</h4>
+                  <div className="space-y-4">
+                    {selectedActiveFontData.matchingFontFiles.map((fontFile: any, idx: number) => (
+                      <div key={idx} className="border rounded-lg p-4">
+                        <div className="grid grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <label className="text-sm font-medium text-gray-700">File Name</label>
+                            <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border font-mono">
+                              {fontFile.name}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-700">Format</label>
+                            <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                              {fontFile.format}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <label className="text-sm font-medium text-gray-700">Size</label>
+                            <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                              {(fontFile.size / 1024).toFixed(2)} KB
+                            </p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-700">Source</label>
+                            <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border">
+                              {fontFile.source}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="mb-3">
+                          <label className="text-sm font-medium text-gray-700">URL</label>
+                          <p className="text-sm text-gray-900 bg-gray-50 p-2 rounded border font-mono break-all">
+                            {fontFile.url}
+                          </p>
+                        </div>
+
+                        {/* Font Metadata */}
+                        {fontFile.metadata && (
+                          <div className="mt-4 pt-4 border-t">
+                            <h5 className="text-sm font-semibold mb-2">Font Metadata</h5>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              {fontFile.metadata.fontName && (
+                                <div>
+                                  <span className="font-medium text-gray-700">Font Name:</span>
+                                  <span className="ml-2 text-gray-900">{fontFile.metadata.fontName}</span>
+                                </div>
+                              )}
+                              {fontFile.metadata.foundry && (
+                                <div>
+                                  <span className="font-medium text-gray-700">Foundry:</span>
+                                  <span className="ml-2 text-gray-900">{fontFile.metadata.foundry}</span>
+                                </div>
+                              )}
+                              {fontFile.metadata.version && (
+                                <div>
+                                  <span className="font-medium text-gray-700">Version:</span>
+                                  <span className="ml-2 text-gray-900">{fontFile.metadata.version}</span>
+                                </div>
+                              )}
+                              {fontFile.metadata.designer && (
+                                <div>
+                                  <span className="font-medium text-gray-700">Designer:</span>
+                                  <span className="ml-2 text-gray-900">{fontFile.metadata.designer}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : selectedActiveFontData.matchingFontFaceDeclarations?.length > 0 && selectedActiveFontData.matchingFontFaceDeclarations.some((decl: any) => decl.isDynamic) ? (
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="text-md font-semibold mb-2 text-blue-800">Dynamic Font</h4>
+                  <p className="text-sm text-blue-700">
+                    This font is loaded dynamically from a font service (like Adobe Fonts or Google Fonts). 
+                    The font files are served on-demand and don't appear as traditional downloaded files.
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-yellow-50 p-4 rounded-lg">
+                  <h4 className="text-md font-semibold mb-2 text-yellow-800">No Font File Found</h4>
+                  <p className="text-sm text-yellow-700">
+                    This font family is being used on the page but no corresponding font file was downloaded. 
+                    This typically indicates it's a system font or fallback font.
+                  </p>
+                </div>
+              )}
+
+
+
+              {/* Active Font Variants */}
+              {selectedActiveFontData.activeFonts?.length > 1 && (
+                <div>
+                  <h4 className="text-md font-semibold mb-3">Font Variants</h4>
+                  <div className="space-y-2">
+                    {selectedActiveFontData.activeFonts.map((activeFont: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center p-2 bg-slate-50 rounded">
+                        <span className="text-sm font-mono">{activeFont.family}</span>
+                        <span className="text-sm text-slate-600">{activeFont.elementCount} elements</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div className="flex justify-end pt-4">
+            <Button variant="outline" onClick={() => setActiveFontModalOpen(false)}>
               Close
             </Button>
           </div>

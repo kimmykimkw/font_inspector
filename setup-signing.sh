@@ -18,7 +18,7 @@ echo -e "  Identity: Developer ID Application: KUN WON KIM (D4D85KJ6FX)"
 
 # Apple ID configuration for notarization
 export APPLE_ID="kimmykim@kakao.com"
-export APPLE_APP_SPECIFIC_PASSWORD="tzlp-zupw-kicc-wcqo"
+export APPLE_APP_SPECIFIC_PASSWORD="cidy-zjkv-mykj-covs"
 export APPLE_TEAM_ID="D4D85KJ6FX"
 
 # Validate certificate is available in keychain

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getInspectionById, deleteInspection } from "@/lib/models/inspection";
 import { getAuthenticatedUser, createUnauthorizedResponse } from "@/lib/auth-utils";
+import { DatabaseFactory } from "@/lib/database-factory";
+import { formatTimestamp } from "@/lib/server-utils";
 
 // GET /api/results/[id] - Fetch a single inspection by ID for authenticated user
 export async function GET(
@@ -21,37 +23,19 @@ export async function GET(
     
     console.log(`API: Fetching inspection ${id} for user: ${userId}`);
     
-    // Get inspection from Firebase with user verification
-    const inspection = await getInspectionById(id, userId);
+    // Get local database services for the user
+    const { inspections: inspectionService } = await DatabaseFactory.getServices(userId);
     
-    if (!inspection) {
+    // Get inspection from local database with user verification
+    const inspection = await inspectionService.getInspection(id);
+    
+    if (!inspection || inspection.userId !== userId) {
       console.log(`API: Inspection with ID ${id} not found or not accessible by user ${userId}`);
       return NextResponse.json(
         { error: "Inspection not found or access denied" },
         { status: 404 }
       );
     }
-    
-    // Safely format timestamps
-    const formatTimestamp = (timestamp: any) => {
-      if (!timestamp) return new Date().toISOString();
-      
-      try {
-        if (timestamp instanceof Date) {
-          return timestamp.toISOString();
-        }
-        
-        // Firebase Timestamp handling
-        if (typeof timestamp.toDate === 'function') {
-          return timestamp.toDate().toISOString();
-        }
-        
-        return new Date(timestamp).toISOString();
-      } catch (err) {
-        console.warn('Timestamp conversion error:', err);
-        return new Date().toISOString();
-      }
-    };
     
     // Format inspection to match the frontend expected structure
     const formattedInspection = {
@@ -113,10 +97,13 @@ export async function DELETE(
     
     console.log(`API: Deleting inspection ${id} for user: ${userId}`);
     
-    // First verify the inspection belongs to the user
-    const inspection = await getInspectionById(id, userId);
+    // Get local database services for the user
+    const { inspections: inspectionService } = await DatabaseFactory.getServices(userId);
     
-    if (!inspection) {
+    // First verify the inspection belongs to the user
+    const inspection = await inspectionService.getInspection(id);
+    
+    if (!inspection || inspection.userId !== userId) {
       console.log(`API: Inspection with ID ${id} not found or not accessible by user ${userId}`);
       return NextResponse.json(
         { error: "Inspection not found or access denied" },
@@ -124,8 +111,8 @@ export async function DELETE(
       );
     }
     
-    // Delete the inspection
-    const success = await deleteInspection(id);
+    // Delete the inspection from local database
+    const success = await inspectionService.deleteInspection(id);
     
     if (!success) {
       console.log(`API: Failed to delete inspection with ID ${id}`);

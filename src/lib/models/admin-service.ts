@@ -116,8 +116,11 @@ export const approveUserInvitation = async (
         approvalNotes: approvalNotes || ''
       });
 
-      // Get current default permissions from settings
-      const defaultPermissions = await getDefaultUserPermissions();
+      // Get current default permissions from settings (always fresh)
+      const defaultPermissions = await getDefaultUserPermissions(true);
+      
+      // Log the limits being applied for debugging
+      console.log(`[ADMIN] Approving user ${invitation.email} with limits: ${defaultPermissions.maxInspectionsPerMonth}/${defaultPermissions.maxProjectsPerMonth}`);
       
       // Create user permissions with current default settings
       const userPermissionsRef = collections.user_permissions.doc();
@@ -163,7 +166,7 @@ export const rejectUserInvitation = async (
 // ===== USER MANAGEMENT FUNCTIONS =====
 
 // Check if user is authorized to use the app
-export const isUserAuthorized = async (email: string): Promise<boolean> => {
+export const isUserAuthorized = async (email: string, userId?: string): Promise<boolean> => {
   try {
     // Check if user has approved invitation
     const invitationQuery = await collections.user_invitations
@@ -176,9 +179,14 @@ export const isUserAuthorized = async (email: string): Promise<boolean> => {
       return false;
     }
 
-    // Check user permissions
+    // Check user permissions - look for both email and UID (after migration)
+    const searchValues = [email.toLowerCase()];
+    if (userId) {
+      searchValues.push(userId);
+    }
+    
     const permissionsQuery = await collections.user_permissions
-      .where('userId', '==', email.toLowerCase())
+      .where('userId', 'in', searchValues)
       .limit(1)
       .get();
 

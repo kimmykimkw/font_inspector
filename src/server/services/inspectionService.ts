@@ -52,6 +52,8 @@ export interface FontFaceDeclaration {
   source: string;
   weight?: string;
   style?: string;
+  isDynamic?: boolean;
+  service?: string;
 }
 
 export interface ActiveFont {
@@ -168,7 +170,7 @@ export async function inspectWebsite(url: string, options?: {
     // Navigate to the URL with enhanced loading wait
     console.log(`Navigating to ${url}...`);
     try {
-      await navigateAndWaitForFullLoad(page, url);
+      await navigateAndWaitForFullLoad(page, url, downloadedFonts);
       console.log(`Successfully navigated to ${url} and waited for full load`);
     } catch (navigationError) {
       console.error('Navigation or loading error:', navigationError);
@@ -207,6 +209,14 @@ export async function inspectWebsite(url: string, options?: {
     console.log('Extracting @font-face declarations...');
     const fontFaceDeclarations = await extractFontFaceDeclarations(page);
     
+    // Detect dynamic font services (Adobe Fonts, etc.)
+    console.log('Detecting dynamic font services...');
+    const dynamicFonts = await detectDynamicFontServices(page);
+    
+    // Detect and reconstruct Google Fonts @font-face declarations
+    console.log('Detecting Google Fonts and reconstructing @font-face declarations...');
+    const googleFontDeclarations = await detectAndReconstructGoogleFonts(page, downloadedFonts);
+    
     // Analyze active fonts on the page
     console.log('Analyzing active fonts...');
     const activeFonts = await analyzeActiveFonts(page);
@@ -216,6 +226,12 @@ export async function inspectWebsite(url: string, options?: {
     
     // Capture screenshots if requested and in Electron environment
     let screenshotData;
+    console.log('🔍 Screenshot capture conditions check:');
+    console.log(`  - captureScreenshots: ${options?.captureScreenshots}`);
+    console.log(`  - userId: ${options?.userId ? 'provided' : 'missing'}`);
+    console.log(`  - inspectionId: ${options?.inspectionId ? 'provided' : 'missing'}`);
+    console.log(`  - isElectronEnvironment: ${isElectronEnvironment()}`);
+    
     if (options?.captureScreenshots && options?.userId && options?.inspectionId && isElectronEnvironment()) {
       try {
         console.log('Capturing screenshots...');
@@ -294,11 +310,30 @@ export async function inspectWebsite(url: string, options?: {
       console.log('Screenshot capture skipped: missing userId or inspectionId');
     } else if (options?.captureScreenshots && !isElectronEnvironment()) {
       console.log('Screenshot capture skipped: not in Electron environment');
+    } else {
+      console.log('⚠️ Screenshot capture not requested or conditions not met');
     }
+    
+    // Always run font annotation analysis for debugging (even without screenshots)
+    if (activeFonts && processedFonts && activeFonts.length > 0) {
+      try {
+        console.log('🔍 Running font annotation analysis for debugging...');
+        const { addFontAnnotations } = await import('./screenshotService');
+        await addFontAnnotations(page, { 
+          activeFonts, 
+          downloadedFonts: processedFonts 
+        });
+      } catch (error) {
+        console.error('Error in debug font annotation analysis:', error);
+      }
+    }
+    
+    // Merge dynamic fonts and Google Fonts with regular font-face declarations
+    const allFontFaceDeclarations = [...fontFaceDeclarations, ...dynamicFonts, ...googleFontDeclarations];
     
     return {
       downloadedFonts: processedFonts,
-      fontFaceDeclarations,
+      fontFaceDeclarations: allFontFaceDeclarations,
       activeFonts,
       ...(screenshotData && { screenshots: screenshotData })
     };
@@ -318,15 +353,56 @@ export async function inspectWebsite(url: string, options?: {
  * Enhanced navigation and loading function that waits for the website to fully load
  * before proceeding with analysis or screenshots
  */
-async function navigateAndWaitForFullLoad(page: Page, url: string): Promise<void> {
-  console.log('Using aggressive loading approach for fastest inspections...');
-  console.log('Step 1: Initial navigation with networkidle2...');
+async function navigateAndWaitForFullLoad(page: Page, url: string, downloadedFonts: FontFile[]): Promise<void> {
+  console.log('Using fallback navigation approach for better compatibility...');
   
-  // Step 1: Basic navigation with networkidle2
-  await page.goto(url, { 
-    waitUntil: 'networkidle2',
-    timeout: 30000 
-  });
+  // Try multiple navigation strategies with fallbacks
+  const navigationStrategies = [
+    { name: 'networkidle2', waitUntil: 'networkidle2' as const, timeout: 60000 },
+    { name: 'networkidle0', waitUntil: 'networkidle0' as const, timeout: 45000 },
+    { name: 'load', waitUntil: 'load' as const, timeout: 30000 },
+    { name: 'domcontentloaded', waitUntil: 'domcontentloaded' as const, timeout: 20000 }
+  ];
+  
+  let navigationSuccess = false;
+  let lastError: Error | null = null;
+  
+  for (const strategy of navigationStrategies) {
+    try {
+      console.log(`Step 1: Attempting navigation with ${strategy.name} (timeout: ${strategy.timeout}ms)...`);
+      
+      await page.goto(url, { 
+        waitUntil: strategy.waitUntil,
+        timeout: strategy.timeout
+      });
+      
+      console.log(`✅ Navigation successful with ${strategy.name}`);
+      navigationSuccess = true;
+      break;
+    } catch (error) {
+      console.log(`❌ Navigation failed with ${strategy.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      lastError = error instanceof Error ? error : new Error('Unknown navigation error');
+      
+      // Check if we have fonts loaded - early success detection
+      if (downloadedFonts.length > 0) {
+        console.log(`🎯 Early success: Found ${downloadedFonts.length} fonts despite navigation timeout`);
+        console.log('Proceeding with inspection using available font data...');
+        navigationSuccess = true;
+        break;
+      }
+      
+      // If this isn't the last strategy, continue to the next one
+      if (strategy !== navigationStrategies[navigationStrategies.length - 1]) {
+        console.log('Trying next navigation strategy...');
+        continue;
+      }
+    }
+  }
+  
+  // If all strategies failed, throw the last error
+  if (!navigationSuccess && lastError) {
+    throw lastError;
+  }
   
     console.log('Step 2: Parallel font loading and animation detection...');
   
@@ -672,10 +748,55 @@ async function setupRequestInterception(page: Page, downloadedFonts: FontFile[])
 
 // Extract @font-face declarations from stylesheets
 async function extractFontFaceDeclarations(page: Page): Promise<FontFaceDeclaration[]> {
-  return page.evaluate(() => {
+  // Helper function to parse font-face rules from CSS text
+  const parseFontFaceFromCSS = (cssText: string): FontFaceDeclaration[] => {
     const fontFaceDeclarations: FontFaceDeclaration[] = [];
     
-    // Helper function to parse font-face rules
+    // Match @font-face blocks
+    const fontFaceRegex = /@font-face\s*\{([^}]+)\}/gi;
+    let match;
+    
+    while ((match = fontFaceRegex.exec(cssText)) !== null) {
+      const fontFaceContent = match[1];
+      const family = fontFaceContent.match(/font-family\s*:\s*['"]?([^'";]+)/i)?.[1] || '';
+      const sources = fontFaceContent.match(/src\s*:([^;]+)/i)?.[1] || '';
+      const weight = fontFaceContent.match(/font-weight\s*:\s*([^;]+)/i)?.[1] || '';
+      const style = fontFaceContent.match(/font-style\s*:\s*([^;]+)/i)?.[1] || '';
+      
+      if (family && sources) {
+        fontFaceDeclarations.push({
+          family: family.trim(),
+          source: sources.trim(),
+          weight: weight.trim() || undefined,
+          style: style.trim() || undefined
+        });
+      }
+    }
+    
+    return fontFaceDeclarations;
+  };
+
+  // Get stylesheet URLs and fetch their content
+  const stylesheetUrls = await page.evaluate(() => {
+    const urls: string[] = [];
+    
+    // Get all link tags for stylesheets
+    document.querySelectorAll('link[rel="stylesheet"]').forEach((link: Element) => {
+      const href = (link as HTMLLinkElement).href;
+      if (href) {
+        urls.push(href);
+      }
+    });
+    
+    return urls;
+  });
+
+  const allFontFaceDeclarations: FontFaceDeclaration[] = [];
+
+  // Process local stylesheets (accessible via document.styleSheets)
+  const localDeclarations = await page.evaluate(() => {
+    const fontFaceDeclarations: FontFaceDeclaration[] = [];
+    
     const parseFontFace = (cssText: string) => {
       const family = cssText.match(/font-family\s*:\s*['"]?([^'";]+)/i)?.[1] || '';
       const sources = cssText.match(/src\s*:([^;]+)/i)?.[1] || '';
@@ -683,21 +804,15 @@ async function extractFontFaceDeclarations(page: Page): Promise<FontFaceDeclarat
       const style = cssText.match(/font-style\s*:\s*([^;]+)/i)?.[1] || '';
       
       return {
-        family,
+        family: family.trim(),
         source: sources.trim(),
         weight: weight.trim() || undefined,
         style: style.trim() || undefined
       };
     };
     
-    // Process all stylesheets
     for (const sheet of Array.from(document.styleSheets)) {
       try {
-        // Skip cross-origin stylesheets that can't be accessed
-        if (sheet.href && new URL(sheet.href).origin !== window.location.origin) {
-          continue;
-        }
-        
         const rules = sheet.cssRules || [];
         for (let i = 0; i < rules.length; i++) {
           const rule = rules[i];
@@ -706,13 +821,362 @@ async function extractFontFaceDeclarations(page: Page): Promise<FontFaceDeclarat
           }
         }
       } catch (error) {
-        // Silently skip inaccessible stylesheets
-        console.warn('Could not access stylesheet:', error);
+        // Skip inaccessible stylesheets
       }
     }
     
     return fontFaceDeclarations;
   });
+
+  allFontFaceDeclarations.push(...localDeclarations);
+
+  // Fetch and parse external stylesheets with enhanced CORS handling
+  for (const url of stylesheetUrls) {
+    try {
+      console.log(`Fetching external stylesheet: ${url}`);
+      
+      // Special handling for Google Fonts CSS
+      if (url.includes('fonts.googleapis.com')) {
+        console.log('Detected Google Fonts CSS - using enhanced fetching');
+        
+        const response = await page.evaluate(async (stylesheetUrl) => {
+          // Try multiple approaches for Google Fonts
+          const userAgents = [
+            // Modern Chrome (gets WOFF2)
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            // Legacy browser (gets WOFF/TTF with more @font-face declarations)
+            'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0'
+          ];
+          
+          for (const userAgent of userAgents) {
+            try {
+              // Create a new request with specific headers
+              const response = await fetch(stylesheetUrl, {
+                headers: {
+                  'User-Agent': userAgent,
+                  'Accept': 'text/css,*/*;q=0.1',
+                  'Accept-Language': 'en-US,en;q=0.9'
+                }
+              });
+              
+              if (response.ok) {
+                const cssText = await response.text();
+                if (cssText.includes('@font-face')) {
+                  console.log(`Successfully fetched Google Fonts CSS with ${userAgent}`);
+                  return cssText;
+                }
+              }
+            } catch (error) {
+              console.warn(`Failed with User-Agent ${userAgent}:`, error instanceof Error ? error.message : String(error));
+            }
+          }
+          
+          return null;
+        }, url);
+
+        if (response) {
+          const externalDeclarations = parseFontFaceFromCSS(response);
+          console.log(`Found ${externalDeclarations.length} @font-face declarations in Google Fonts CSS`);
+          allFontFaceDeclarations.push(...externalDeclarations);
+        }
+      } else {
+        // Standard fetching for other stylesheets
+        const response = await page.evaluate(async (stylesheetUrl) => {
+          try {
+            const response = await fetch(stylesheetUrl);
+            if (response.ok) {
+              return await response.text();
+            }
+          } catch (error) {
+            return null;
+          }
+          return null;
+        }, url);
+
+        if (response) {
+          const externalDeclarations = parseFontFaceFromCSS(response);
+          console.log(`Found ${externalDeclarations.length} @font-face declarations in ${url}`);
+          allFontFaceDeclarations.push(...externalDeclarations);
+        }
+      }
+    } catch (error) {
+      console.warn(`Could not fetch stylesheet ${url}:`, error);
+    }
+  }
+
+  console.log(`Total @font-face declarations found: ${allFontFaceDeclarations.length}`);
+  return allFontFaceDeclarations;
+}
+
+// Detect dynamic font services like Adobe Fonts (Typekit)
+async function detectDynamicFontServices(page: Page): Promise<FontFaceDeclaration[]> {
+  const dynamicFontDeclarations: FontFaceDeclaration[] = [];
+  
+  try {
+    // Check for Adobe Fonts/Typekit
+    const adobeFonts = await page.evaluate(() => {
+      const fonts: any[] = [];
+      
+      // Look for Typekit script
+      const typekitScripts = Array.from(document.querySelectorAll('script[src*="typekit.net"]'));
+      if (typekitScripts.length === 0) {
+        return fonts;
+      }
+      
+      // Check if Typekit object exists
+      if (typeof (window as any).Typekit !== 'undefined') {
+        const typekit = (window as any).Typekit;
+        
+        // Try to get font configuration from Typekit
+        if (typekit.config && typekit.config.f) {
+          const fontConfig = typekit.config.f;
+          
+          Object.keys(fontConfig).forEach(fontKey => {
+            const fontData = fontConfig[fontKey];
+            if (fontData.family && fontData.src) {
+              fonts.push({
+                family: fontData.family,
+                source: fontData.src,
+                weight: fontData.descriptors?.weight || undefined,
+                style: fontData.descriptors?.style || undefined,
+                isDynamic: true,
+                service: 'Adobe Fonts'
+              });
+            }
+          });
+        }
+      }
+      
+      // Enhanced fallback: Look for dynamically created @font-face rules
+      // This catches Adobe Fonts that inject @font-face rules after page load
+      const adobeFontPattern = /use\.typekit\.net/;
+      
+      try {
+        // First, check all stylesheets for Adobe Fonts @font-face rules
+        for (const sheet of Array.from(document.styleSheets)) {
+          try {
+            const rules = sheet.cssRules || [];
+            for (let i = 0; i < rules.length; i++) {
+              const rule = rules[i];
+              if (rule instanceof CSSFontFaceRule) {
+                const cssText = rule.cssText;
+                
+                // Check if this looks like an Adobe Fonts rule
+                if (adobeFontPattern.test(cssText)) {
+                  const family = cssText.match(/font-family\s*:\s*['"]?([^'";]+)/i)?.[1] || '';
+                  const sources = cssText.match(/src\s*:([^;]+)/i)?.[1] || '';
+                  const weight = cssText.match(/font-weight\s*:\s*([^;]+)/i)?.[1] || '';
+                  const style = cssText.match(/font-style\s*:\s*([^;]+)/i)?.[1] || '';
+                  
+                  if (family && sources) {
+                    fonts.push({
+                      family: family.trim(),
+                      source: sources.trim(),
+                      weight: weight.trim() || undefined,
+                      style: style.trim() || undefined,
+                      isDynamic: true,
+                      service: 'Adobe Fonts'
+                    });
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            // Skip inaccessible stylesheets
+          }
+        }
+        
+        // Additional check: Look for computed styles that reference Adobe Fonts
+        // This helps catch fonts that are being used but might not have accessible @font-face rules
+        const elementsWithFonts = Array.from(document.querySelectorAll('*')).slice(0, 100); // Sample first 100 elements
+        const seenFamilies = new Set();
+        
+        for (const element of elementsWithFonts) {
+          try {
+            const computedStyle = window.getComputedStyle(element);
+            const fontFamily = computedStyle.fontFamily;
+            
+            if (fontFamily && fontFamily !== 'initial' && fontFamily !== 'inherit') {
+              // Clean up font family name
+              const cleanFamily = fontFamily.replace(/["']/g, '').split(',')[0].trim();
+              
+              // If this is a font we haven't seen and it looks like it might be from Adobe Fonts
+              if (!seenFamilies.has(cleanFamily) && (
+                cleanFamily.includes('klavika') || 
+                cleanFamily.includes('web') ||
+                cleanFamily.match(/^[a-z]+-[a-z]+(-[a-z]+)?$/i) // Common Adobe Fonts naming pattern
+              )) {
+                seenFamilies.add(cleanFamily);
+                
+                // Try to create a synthetic font-face declaration for Adobe Fonts
+                fonts.push({
+                  family: cleanFamily,
+                  source: 'url("https://use.typekit.net/...") /* Dynamic Adobe Fonts - exact URL varies */',
+                  weight: undefined,
+                  style: undefined,
+                  isDynamic: true,
+                  service: 'Adobe Fonts'
+                });
+              }
+            }
+          } catch (e) {
+            // Skip elements that can't be styled
+          }
+        }
+        
+      } catch (e) {
+        console.warn('Error checking for dynamic font rules:', e);
+      }
+      
+      return fonts;
+    });
+    
+    // Add Adobe Fonts to the declarations
+    dynamicFontDeclarations.push(...adobeFonts.map((font: any) => ({
+      family: font.family,
+      source: font.source,
+      weight: font.weight,
+      style: font.style,
+      isDynamic: font.isDynamic,
+      service: font.service
+    })));
+    
+    console.log(`Found ${dynamicFontDeclarations.length} dynamic font declarations`);
+    
+  } catch (error) {
+    console.warn('Error detecting dynamic font services:', error);
+  }
+  
+  return dynamicFontDeclarations;
+}
+
+// Detect Google Fonts usage and reconstruct @font-face declarations
+async function detectAndReconstructGoogleFonts(page: Page, downloadedFonts: FontFile[]): Promise<FontFaceDeclaration[]> {
+  const googleFontDeclarations: FontFaceDeclaration[] = [];
+  
+  try {
+    // Step 1: Detect Google Fonts usage patterns
+    const googleFontsInfo = await page.evaluate(() => {
+      const googleFontsSources: Array<{type: string, href: string}> = [];
+      
+      // Check for Google Fonts CSS links
+      document.querySelectorAll('link[href*="fonts.googleapis.com"]').forEach(link => {
+        googleFontsSources.push({
+          type: 'link',
+          href: (link as HTMLLinkElement).href
+        });
+      });
+      
+      // Check for Google Fonts @import statements in style tags
+      document.querySelectorAll('style').forEach(style => {
+        const cssText = style.textContent || '';
+        const importMatches = cssText.match(/@import\s+url\(['"]?([^'"]*fonts\.googleapis\.com[^'"]*)/gi);
+        if (importMatches) {
+          importMatches.forEach(match => {
+            const urlMatch = match.match(/url\(['"]?([^'"]*)/i);
+            if (urlMatch) {
+              googleFontsSources.push({
+                type: 'import',
+                href: urlMatch[1]
+              });
+            }
+          });
+        }
+      });
+      
+      return googleFontsSources;
+    });
+    
+    if (googleFontsInfo.length === 0) {
+      return googleFontDeclarations;
+    }
+    
+    console.log(`Found ${googleFontsInfo.length} Google Fonts references`);
+    
+    // Step 2: Reconstruct @font-face declarations from downloaded Google Fonts files
+    const googleFontFiles = downloadedFonts.filter(font => 
+      font.url.includes('fonts.gstatic.com') || 
+      font.source === 'Google Fonts'
+    );
+    
+    if (googleFontFiles.length === 0) {
+      return googleFontDeclarations;
+    }
+    
+    console.log(`Found ${googleFontFiles.length} downloaded Google Fonts files`);
+    
+    // Step 3: Group fonts by family and reconstruct @font-face declarations
+    const fontFamilyGroups = new Map<string, FontFile[]>();
+    
+    googleFontFiles.forEach(font => {
+      // Extract font family from metadata or URL
+      let fontFamily = '';
+      
+      if (font.metadata && (font.metadata as any).fontFamily) {
+        fontFamily = (font.metadata as any).fontFamily;
+      } else if (font.metadata && (font.metadata as any).fontName) {
+        fontFamily = (font.metadata as any).fontName;
+      } else {
+        // Extract from Google Fonts URL pattern: /s/fontname/version/
+        const urlMatch = font.url.match(/\/s\/([^\/]+)\//);
+        if (urlMatch) {
+          // Convert Google Fonts URL slug to readable name
+          fontFamily = urlMatch[1]
+            .replace(/([a-z])([A-Z])/g, '$1 $2') // Add spaces before capitals
+            .replace(/^\w/, c => c.toUpperCase()); // Capitalize first letter
+        }
+      }
+      
+      if (fontFamily) {
+        if (!fontFamilyGroups.has(fontFamily)) {
+          fontFamilyGroups.set(fontFamily, []);
+        }
+        fontFamilyGroups.get(fontFamily)!.push(font);
+      }
+    });
+    
+    // Step 4: Create @font-face declarations for each font file
+    fontFamilyGroups.forEach((fonts, familyName) => {
+      fonts.forEach(font => {
+        // Determine font weight and style from metadata or filename
+        let weight = '400'; // default
+        let style = 'normal'; // default
+        
+        if (font.metadata && (font.metadata as any).fontWeight) {
+          weight = (font.metadata as any).fontWeight.toString();
+        } else {
+          // Try to extract from filename patterns
+          const weightMatch = font.name.match(/(\d{3})/);
+          if (weightMatch) {
+            weight = weightMatch[1];
+          }
+        }
+        
+        if (font.metadata && (font.metadata as any).fontStyle) {
+          style = (font.metadata as any).fontStyle;
+        } else if (font.name.toLowerCase().includes('italic')) {
+          style = 'italic';
+        }
+        
+        // Create @font-face declaration
+        googleFontDeclarations.push({
+          family: familyName,
+          source: `url("${font.url}")`,
+          weight: weight,
+          style: style,
+          isDynamic: false, // These are real downloaded files
+          service: 'Google Fonts'
+        });
+      });
+    });
+    
+    console.log(`Reconstructed ${googleFontDeclarations.length} Google Fonts @font-face declarations`);
+    
+  } catch (error) {
+    console.error('Error detecting Google Fonts:', error);
+  }
+  
+  return googleFontDeclarations;
 }
 
 // Analyze which fonts are actively used on the page
@@ -748,12 +1212,22 @@ async function analyzeActiveFonts(page: Page): Promise<ActiveFont[]> {
     });
     
     // Convert to array and sort by usage
-    return Array.from(fontUsage.entries())
+    const activeFonts = Array.from(fontUsage.entries())
       .map(([family, elementCount]) => ({
         family,
         elementCount,
         preview: previewText[family]
       }))
       .sort((a, b) => b.elementCount - a.elementCount);
+    
+    console.log('🔍 Active Fonts detected:', activeFonts.map(f => `${f.family} (${f.elementCount} elements)`));
+    
+    // Debug: Check for suspicious single-character font names
+    const suspiciousFonts = activeFonts.filter(f => f.family.length <= 2);
+    if (suspiciousFonts.length > 0) {
+      console.log('⚠️ Suspicious short font names detected:', suspiciousFonts.map(f => `"${f.family}" (${f.elementCount} elements)`));
+    }
+    
+    return activeFonts;
   });
 } 

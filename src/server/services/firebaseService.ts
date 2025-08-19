@@ -43,7 +43,14 @@ export const saveInspectionResult = async (url: string, result: InspectionResult
       createdAt: Timestamp.now(), // Add createdAt for consistency
       updatedAt: Timestamp.now(), // Add updatedAt for consistency
       downloadedFonts: result.downloadedFonts || [],
-      fontFaceDeclarations: result.fontFaceDeclarations || [],
+      fontFaceDeclarations: (result.fontFaceDeclarations || []).map(decl => ({
+        family: decl.family,
+        source: decl.source,
+        ...(decl.weight !== undefined && { weight: decl.weight }),
+        ...(decl.style !== undefined && { style: decl.style }),
+        ...(decl.isDynamic !== undefined && { isDynamic: decl.isDynamic }),
+        ...(decl.service !== undefined && { service: decl.service })
+      })),
       activeFonts: convertedActiveFonts,
       userId: userId, // Required field
       status: 'completed' as const, // Mark as completed
@@ -109,85 +116,6 @@ export const saveInspectionResult = async (url: string, result: InspectionResult
     return savedInspection;
   } catch (error) {
     console.error('Error saving inspection result:', error);
-    throw error;
-  }
-};
-
-/**
- * Save failed inspection result to Firestore
- */
-export const saveFailedInspectionResult = async (url: string, errorMessage: string, projectId?: string, userId?: string) => {
-  try {
-    console.log(`Saving failed inspection result for ${url}${projectId ? `, project ID: ${projectId}` : ''}${userId ? `, user ID: ${userId}` : ''}`);
-    
-    // Ensure userId is provided when creating inspection
-    if (!userId) {
-      throw new Error('userId is required to save failed inspection result');
-    }
-
-    const inspectionData = {
-      url,
-      timestamp: Timestamp.now(),
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-      downloadedFonts: [], // Empty arrays for failed inspections
-      fontFaceDeclarations: [],
-      activeFonts: [],
-      userId: userId,
-      status: 'failed' as const, // Mark as failed
-      error: errorMessage, // Store the error message
-      ...(projectId ? { projectId } : {})
-    };
-
-    console.log('Creating failed inspection with data:', {
-      url: inspectionData.url,
-      error: errorMessage,
-      projectId: projectId || 'none',
-      userId: userId
-    });
-
-    const savedInspection = await createInspectionModel(inspectionData);
-    console.log(`Failed inspection saved with ID: ${savedInspection.id} for user: ${userId}`);
-    
-    // If this inspection is part of a project, update the project with this inspection ID
-    if (projectId && savedInspection.id) {
-      console.log(`Associating failed inspection ${savedInspection.id} with project ${projectId}`);
-      try {
-        const success = await addInspectionToProject(projectId, savedInspection.id);
-        
-        if (!success) {
-          console.warn(`Failed to associate failed inspection ${savedInspection.id} with project ${projectId}, will retry...`);
-          // Retry once more with a delay
-          try {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            const retrySuccess = await addInspectionToProject(projectId, savedInspection.id as string);
-            console.log(`Retry to associate failed inspection with project: ${retrySuccess ? 'succeeded' : 'failed'}`);
-            
-            if (!retrySuccess) {
-              // Do a manual update as a last resort
-              console.log('Attempting manual update of project document...');
-              try {
-                await collections.projects.doc(projectId).update({
-                  inspectionIds: FieldValue.arrayUnion(savedInspection.id),
-                  updatedAt: Timestamp.now()
-                });
-                console.log('Manual project update successful');
-              } catch (manualUpdateError) {
-                console.error('Manual project update failed:', manualUpdateError);
-              }
-            }
-          } catch (retryError) {
-            console.error('Error during retry:', retryError);
-          }
-        }
-      } catch (associationError) {
-        console.error('Error associating failed inspection with project:', associationError);
-      }
-    }
-    
-    return savedInspection;
-  } catch (error) {
-    console.error('Error saving failed inspection result:', error);
     throw error;
   }
 };

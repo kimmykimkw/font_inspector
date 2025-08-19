@@ -11,7 +11,7 @@ import {
   GoogleAuthProvider
 } from 'firebase/auth';
 import { firestoreDb, auth } from '@/lib/firebase-client';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { updateUserStats } from '@/lib/user-stats';
 import { getCurrentAppVersion } from '@/lib/version';
@@ -64,6 +64,104 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  // Migrate user permissions from email-based to UID-based
+  const migrateUserPermissions = async (userId: string, email: string) => {
+    if (!firestoreDb) return;
+
+    try {
+      const permissionsRef = collection(firestoreDb, 'user_permissions');
+      
+      // First check if UID-based permissions already exist
+      const uidQuery = query(permissionsRef, where('userId', '==', userId));
+      const uidSnapshot = await getDocs(uidQuery);
+      
+      if (!uidSnapshot.empty) {
+        // UID-based permissions already exist, but check if we need to refresh limits
+        const existingPermission = uidSnapshot.docs[0];
+        const permissionData = existingPermission.data();
+        
+        // Check if limits look outdated (less than admin-configured limits)
+        if (permissionData.maxInspectionsPerMonth < 1000 || permissionData.maxProjectsPerMonth < 100) {
+          console.log(`Refreshing outdated limits for user ${userId}: ${permissionData.maxInspectionsPerMonth}/${permissionData.maxProjectsPerMonth}`);
+          
+          try {
+            const defaultLimitsResponse = await fetch('/api/admin/settings', {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (defaultLimitsResponse.ok) {
+              const defaultLimits = await defaultLimitsResponse.json();
+              
+              await updateDoc(existingPermission.ref, {
+                maxInspectionsPerMonth: defaultLimits.defaultMaxInspectionsPerMonth,
+                maxProjectsPerMonth: defaultLimits.defaultMaxProjectsPerMonth,
+                updatedAt: serverTimestamp()
+              });
+              
+              console.log(`Updated user limits to ${defaultLimits.defaultMaxInspectionsPerMonth}/${defaultLimits.defaultMaxProjectsPerMonth}`);
+            }
+          } catch (error) {
+            console.error('Error refreshing user limits:', error);
+          }
+        }
+        
+        return; // No email-to-UID migration needed
+      }
+      
+      // Find existing user permissions by email
+      const emailQuery = query(permissionsRef, where('userId', '==', email.toLowerCase()));
+      const emailSnapshot = await getDocs(emailQuery);
+
+      if (!emailSnapshot.empty) {
+        // Update the first matching document to use the actual UID and refresh limits
+        const permissionDoc = emailSnapshot.docs[0];
+        
+        // Get current admin-configured default limits
+        try {
+          const defaultLimitsResponse = await fetch('/api/admin/settings', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          
+          if (defaultLimitsResponse.ok) {
+            const defaultLimits = await defaultLimitsResponse.json();
+            
+            await updateDoc(permissionDoc.ref, {
+              userId: userId, // Update from email to actual Firebase Auth UID
+              maxInspectionsPerMonth: defaultLimits.defaultMaxInspectionsPerMonth,
+              maxProjectsPerMonth: defaultLimits.defaultMaxProjectsPerMonth,
+              updatedAt: serverTimestamp()
+            });
+            
+            console.log(`Migrated user permissions from email (${email}) to UID (${userId}) and updated limits to ${defaultLimits.defaultMaxInspectionsPerMonth}/${defaultLimits.defaultMaxProjectsPerMonth}`);
+          } else {
+            // Fallback: just migrate the userId without updating limits
+            await updateDoc(permissionDoc.ref, {
+              userId: userId,
+              updatedAt: serverTimestamp()
+            });
+            
+            console.log(`Migrated user permissions from email (${email}) to UID (${userId}) - could not refresh limits`);
+          }
+        } catch (limitError) {
+          console.error('Error fetching admin settings during migration:', limitError);
+          
+          // Fallback: just migrate the userId without updating limits
+          await updateDoc(permissionDoc.ref, {
+            userId: userId,
+            updatedAt: serverTimestamp()
+          });
+          
+          console.log(`Migrated user permissions from email (${email}) to UID (${userId}) - could not refresh limits`);
+        }
+      }
+    } catch (error) {
+      console.error('Error migrating user permissions:', error);
+      // Don't throw - this shouldn't block user login
+    }
+  };
+
   // Create or update user profile in Firestore
   const createUserProfile = async (user: User) => {
     if (!firestoreDb) return null;
@@ -71,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // First check if user is authorized to use the app
       if (user.email) {
-        const isAuthorized = await checkUserAuthorization(user.email);
+        const isAuthorized = await checkUserAuthorization(user.email, user.uid);
         if (!isAuthorized) {
           // Sign out the user silently
           await signOut(auth!);
@@ -105,6 +203,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }, { merge: true });
       }
 
+      // Migrate user permissions from email-based to UID-based (run on every login)
+      if (user.email) {
+        await migrateUserPermissions(user.uid, user.email);
+      }
+
       // Update user stats
       await updateUserStats(user.uid, user.email || '', user.displayName || '');
 
@@ -121,14 +224,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Check if user is authorized to use the app
-  const checkUserAuthorization = async (email: string): Promise<boolean> => {
+  const checkUserAuthorization = async (email: string, userId?: string): Promise<boolean> => {
     try {
       const response = await fetch('/api/auth/check-authorization', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, userId }),
       });
 
       if (!response.ok) {

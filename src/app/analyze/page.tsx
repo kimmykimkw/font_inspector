@@ -15,6 +15,10 @@ function AnalyzeContent() {
   const { user, loading: authLoading } = useAuth();
   const { addToQueue, queue } = useInspection();
   
+  console.log('AnalyzeContent render - Auth state:');
+  console.log('- authLoading:', authLoading);
+  console.log('- user:', !!user);
+  
   const [isInitialized, setIsInitialized] = useState(false);
   const [analysisState, setAnalysisState] = useState({
     progress: 0,
@@ -37,16 +41,18 @@ function AnalyzeContent() {
   const pageCount = searchParams.get('pageCount') ? parseInt(searchParams.get('pageCount')!) : 1;
 
   // Debug URL parsing
-  console.log('URL Parameters:', {
-    url,
-    projectName,
-    urls,
-    urlsLength: urls.length,
-    isProject,
-    isMultiPage,
-    pageCount,
-    searchParamsString: searchParams.toString()
-  });
+  console.log('URL Parameters:');
+  console.log('- url:', url);
+  console.log('- projectName:', projectName);
+  console.log('- urls:', urls);
+  console.log('- urlsLength:', urls.length);
+  console.log('- isProject:', isProject);
+  console.log('- isMultiPage:', isMultiPage);
+  console.log('- pageCount:', pageCount);
+  console.log('- searchParamsString:', searchParams.toString());
+
+  // Additional debug for URLs array
+  console.log('URLs array details:', urls.map((u, i) => `${i}: "${u}"`));
 
   // Calculate progress from queue for this project
   const projectUrls = useMemo(() => {
@@ -186,7 +192,10 @@ function AnalyzeContent() {
     try {
       setAnalysisState(prev => ({ ...prev, status: 'processing', progress: 10 }));
       
+      console.log('Analysis conditions check:', { isProject, projectName, urlsLength: urls.length });
+      
       if (isProject && projectName && urls.length > 0) {
+        console.log('Starting project analysis with URLs:', urls);
         // Use the inspection context's addToQueue method to handle project creation
         await addToQueue(urls, projectName);
         // Progress will be tracked via queue updates
@@ -261,18 +270,32 @@ function AnalyzeContent() {
 
   // Initialize analysis
   useEffect(() => {
-    const canStartAnalysis = url && (
+    const canStartAnalysis = (url || isProject || isMultiPage) && (
       (!isProject && !isMultiPage) || // Single page
       (isProject && projectName && urls.length > 0) || // Regular project
       (isMultiPage && pageCount > 0) // Multi-page discovery
     );
     
+    console.log('useEffect analysis check:');
+    console.log('- authLoading:', authLoading);
+    console.log('- user:', !!user);
+    console.log('- isInitialized:', isInitialized);
+    console.log('- analysisStartedRef.current:', analysisStartedRef.current);
+    console.log('- url:', url);
+    console.log('- isProject:', isProject);
+    console.log('- projectName:', projectName);
+    console.log('- urls.length:', urls.length);
+    console.log('- isMultiPage:', isMultiPage);
+    console.log('- pageCount:', pageCount);
+    console.log('- canStartAnalysis:', canStartAnalysis);
+    
     if (!authLoading && user && !isInitialized && !analysisStartedRef.current && canStartAnalysis) {
+      console.log('Starting analysis - all conditions met!');
       setIsInitialized(true);
       analysisStartedRef.current = true;
       startAnalysis();
     }
-  }, [url, projectName, urls, isProject, isMultiPage, pageCount, isInitialized, authLoading, user, startAnalysis]);
+  }, [url, projectName, urls, isProject, isMultiPage, pageCount, isInitialized, authLoading, user, addToQueue]);
 
   // Handle completion and redirect
   const handleAnalysisComplete = useCallback((resultId: string) => {

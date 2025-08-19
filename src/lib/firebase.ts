@@ -141,5 +141,6 @@ export const collections = {
   admin_users: db.collection('admin_users'),
   user_stats: db.collection('user_stats'),
   user_permissions: db.collection('user_permissions'),
-  system_settings: db.collection('system_settings')
+  system_settings: db.collection('system_settings'),
+  announcements: db.collection('announcements')
 }; 

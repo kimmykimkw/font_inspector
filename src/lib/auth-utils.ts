@@ -89,7 +89,7 @@ export async function getAuthorizedUser(request: Request): Promise<{ userId: str
     }
 
     // Check if user is authorized to use the app
-    const authorized = await isUserAuthorized(email);
+    const authorized = await isUserAuthorized(email, userId);
     
     if (!authorized) {
       logger.debug('User not authorized');

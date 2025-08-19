@@ -177,9 +177,10 @@ export const getInspectionsByProjectId = async (projectId: string, userId?: stri
                   continue;
                 }
                 
-                // If the inspection doesn't have a projectId, add it
-                if (!inspection.projectId) {
-                  // Update the inspection with the projectId
+                // If the inspection doesn't have a projectId or has wrong projectId, fix it
+                if (!inspection.projectId || inspection.projectId !== projectId) {
+                  console.log(`Fixing projectId for inspection ${inspId}: ${inspection.projectId} -> ${projectId}`);
+                  // Update the inspection with the correct projectId
                   await collections.inspections.doc(inspId).update({
                     projectId: projectId,
                     updatedAt: new Date()
@@ -227,8 +228,8 @@ export const getInspectionsByProjectId = async (projectId: string, userId?: stri
   }
 };
 
-// Get recent inspections for a specific user
-export const getRecentInspections = async (limit = 10, userId?: string): Promise<Inspection[]> => {
+// Get recent inspections for a specific user with pagination
+export const getRecentInspections = async (limit = 10, userId?: string, page = 1): Promise<Inspection[]> => {
   try {
     console.log(`Querying 'inspections' collection with limit: ${limit}${userId ? ` for user: ${userId}` : ''}`);
     
@@ -250,10 +251,16 @@ export const getRecentInspections = async (limit = 10, userId?: string): Promise
       query = query.where('userId', '==', userId);
     }
     
-    // Apply limit
-    query = query.limit(limit);
+    // Add ordering by createdAt descending (most recent first) BEFORE pagination
+    query = query.orderBy('createdAt', 'desc');
     
-    console.log(`Querying${userId ? ` with userId filter` : ''} to get documents`);
+    // Calculate offset for pagination
+    const offset = (page - 1) * limit;
+    
+    // Apply limit and offset for pagination
+    query = query.limit(limit).offset(offset);
+    
+    console.log(`Querying${userId ? ` with userId filter` : ''} to get ${limit} documents (page ${page}, offset ${offset})`);
     const snapshot = await query.get();
     console.log(`Query returned ${snapshot.docs.length} documents`);
     
@@ -261,6 +268,12 @@ export const getRecentInspections = async (limit = 10, userId?: string): Promise
     const results = snapshot.docs
       .map(doc => {
         const data = doc.data();
+        
+        // Skip inspections without proper userId if userId filtering is requested
+        if (userId && (!data.userId || data.userId !== userId)) {
+          console.warn(`Skipping inspection ${doc.id} - userId mismatch or missing: expected ${userId}, got ${data.userId}`);
+          return null;
+        }
         
         // Add missing createdAt/updatedAt fields if they don't exist
         if (!data.createdAt) {
@@ -280,11 +293,76 @@ export const getRecentInspections = async (limit = 10, userId?: string): Promise
       })
       .filter(inspection => inspection !== null);
     
-    console.log(`Returning ${results.length} inspection records after conversion`);
+    console.log(`Returning ${results.length} inspection records after conversion and filtering (page ${page})`);
+    
+    // Results are already sorted by Firestore orderBy, no need to sort again
     return results;
   } catch (error) {
     console.error("Error in getRecentInspections:", error);
     throw error;
+  }
+};
+
+// Search inspections by URL with simple text matching
+export const searchInspections = async (searchTerm: string, limit = 50, userId?: string, page = 1): Promise<Inspection[]> => {
+  try {
+    console.log(`Searching inspections for term: "${searchTerm}"${userId ? ` for user: ${userId}` : ''}`);
+    
+    let query: FirebaseFirestore.Query = collections.inspections;
+    
+    if (userId) {
+      query = query.where('userId', '==', userId);
+    }
+    
+    // For simple text matching, we'll get all user's inspections and filter client-side
+    // This is because Firestore doesn't support case-insensitive contains queries
+    const snapshot = await query.get();
+    
+    const searchTermLower = searchTerm.toLowerCase();
+    const matchingInspections = snapshot.docs
+      .map(convertInspection)
+      .filter((inspection): inspection is Inspection => {
+        if (!inspection) return false;
+        return inspection.url.toLowerCase().includes(searchTermLower);
+      })
+      .sort((a, b) => {
+        const aTime = a.createdAt instanceof Date 
+          ? a.createdAt.getTime() 
+          : a.createdAt.toDate().getTime();
+        
+        const bTime = b.createdAt instanceof Date 
+          ? b.createdAt.getTime() 
+          : b.createdAt.toDate().getTime();
+        
+        return bTime - aTime; // Descending order
+      });
+    
+    // Apply pagination
+    const offset = (page - 1) * limit;
+    const paginatedResults = matchingInspections.slice(offset, offset + limit);
+    
+    console.log(`Found ${matchingInspections.length} matching inspections, returning ${paginatedResults.length} for page ${page}`);
+    return paginatedResults;
+  } catch (error) {
+    console.error('Error searching inspections:', error);
+    throw error;
+  }
+};
+
+// Get total count of inspections for a user
+export const getTotalInspectionCount = async (userId?: string): Promise<number> => {
+  try {
+    let query: FirebaseFirestore.Query = collections.inspections;
+    
+    if (userId) {
+      query = query.where('userId', '==', userId);
+    }
+    
+    const snapshot = await query.get();
+    return snapshot.size;
+  } catch (error) {
+    console.error('Error getting total inspection count:', error);
+    return 0;
   }
 };
 
@@ -296,5 +374,72 @@ export const deleteInspection = async (id: string): Promise<boolean> => {
   } catch (error) {
     console.error('Error deleting inspection:', error);
     return false;
+  }
+};
+
+// Repair orphaned inspections (inspections without proper userId or missing from queries)
+export const repairOrphanedInspections = async (userId: string): Promise<{ fixed: number; total: number }> => {
+  try {
+    console.log(`Starting repair of orphaned inspections for user ${userId}`);
+    
+    // Get all inspections without userId filter to find potential orphans
+    const allInspectionsSnapshot = await collections.inspections.get();
+    let totalInspections = 0;
+    let fixedInspections = 0;
+    
+    for (const doc of allInspectionsSnapshot.docs) {
+      const data = doc.data();
+      totalInspections++;
+      
+      // Check if inspection has missing or incorrect userId
+      if (!data.userId) {
+        console.log(`Found inspection ${doc.id} without userId, attempting to determine correct user`);
+        
+        // Try to determine the correct userId from associated project
+        if (data.projectId) {
+          try {
+            const projectDoc = await collections.projects.doc(data.projectId).get();
+            if (projectDoc.exists) {
+              const projectData = projectDoc.data();
+              if (projectData?.userId) {
+                console.log(`Fixing inspection ${doc.id} userId: null -> ${projectData.userId}`);
+                await collections.inspections.doc(doc.id).update({
+                  userId: projectData.userId,
+                  updatedAt: new Date()
+                });
+                fixedInspections++;
+              }
+            }
+          } catch (error) {
+            console.error(`Error fixing inspection ${doc.id}:`, error);
+          }
+        }
+      }
+      
+      // Check if inspection has missing timestamps
+      if (!data.createdAt || !data.updatedAt) {
+        const timestamp = data.timestamp || new Date();
+        const updates: any = {};
+        
+        if (!data.createdAt) {
+          updates.createdAt = timestamp;
+        }
+        if (!data.updatedAt) {
+          updates.updatedAt = timestamp;
+        }
+        
+        if (Object.keys(updates).length > 0) {
+          console.log(`Fixing missing timestamps for inspection ${doc.id}`);
+          await collections.inspections.doc(doc.id).update(updates);
+          fixedInspections++;
+        }
+      }
+    }
+    
+    console.log(`Repair completed: fixed ${fixedInspections} out of ${totalInspections} inspections`);
+    return { fixed: fixedInspections, total: totalInspections };
+  } catch (error) {
+    console.error('Error repairing orphaned inspections:', error);
+    return { fixed: 0, total: 0 };
   }
 }; 
