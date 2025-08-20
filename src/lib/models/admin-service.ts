@@ -168,18 +168,9 @@ export const rejectUserInvitation = async (
 // Check if user is authorized to use the app
 export const isUserAuthorized = async (email: string, userId?: string): Promise<boolean> => {
   try {
-    // Check if user has approved invitation
-    const invitationQuery = await collections.user_invitations
-      .where('email', '==', email.toLowerCase())
-      .where('status', '==', 'approved')
-      .limit(1)
-      .get();
-
-    if (invitationQuery.empty) {
-      return false;
-    }
-
-    // Check user permissions - look for both email and UID (after migration)
+    console.log(`[DEBUG] Checking authorization for email: ${email}, userId: ${userId}`);
+    
+    // Check user permissions first - look for both email and UID (after migration)
     const searchValues = [email.toLowerCase()];
     if (userId) {
       searchValues.push(userId);
@@ -191,10 +182,24 @@ export const isUserAuthorized = async (email: string, userId?: string): Promise<
       .get();
 
     if (permissionsQuery.empty) {
+      console.log(`[DEBUG] No permissions found for userId in:`, searchValues);
+      
+      // If no permissions found, check if user has approved invitation as fallback
+      const invitationQuery = await collections.user_invitations
+        .where('email', '==', email.toLowerCase())
+        .where('status', '==', 'approved')
+        .limit(1)
+        .get();
+
+      if (!invitationQuery.empty) {
+        console.log(`[DEBUG] User has approved invitation but no permissions - this shouldn't happen`);
+      }
+      
       return false;
     }
 
     const permissions = permissionsQuery.docs[0].data() as UserPermissions;
+    console.log(`[DEBUG] Found permissions for user, canUseApp: ${permissions.canUseApp}`);
     
     // Check if user is suspended
     if (permissions.suspendedUntil) {
@@ -203,10 +208,12 @@ export const isUserAuthorized = async (email: string, userId?: string): Promise<
         : new Date(permissions.suspendedUntil);
       
       if (suspendedUntil > new Date()) {
+        console.log(`[DEBUG] User is suspended until: ${suspendedUntil}`);
         return false; // Still suspended
       }
     }
 
+    console.log(`[DEBUG] Authorization result: ${permissions.canUseApp}`);
     return permissions.canUseApp;
   } catch (error) {
     console.error('Error checking user authorization:', error);

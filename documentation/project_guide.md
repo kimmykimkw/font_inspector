@@ -4,7 +4,7 @@
 
 Font Inspector is a **Desktop Application** built with Electron that analyzes websites and reports which font files are downloaded and actively used. The tool utilizes a headless browser to inspect the network requests of a given website, filters font-related assets, and provides insights by comparing CSS declarations with actual applied fonts. **Advanced Font Compliance Features** include comprehensive font metadata extraction that identifies font foundries, copyright information, licensing terms, and embedding permissions to support legal compliance auditing. **Interactive Screenshot Functionality** captures both original and annotated website screenshots with smart font highlighting, showing colored borders around text elements with always-visible font labels for visual font identification. The app supports both individual website inspections and projects containing multiple websites, offering a user-friendly desktop interface, robust backend inspection, and native macOS integration with proper permission handling.
 
-**Authentication**: The app requires Google authentication to ensure user data privacy and personalized experience. Each user's inspections, projects, and history are completely isolated from other users. Access to the application is controlled through an admin-managed approval system with granular permission controls and usage limits.
+**Authentication**: The app supports both Google OAuth and email/password authentication to ensure user data privacy and personalized experience. Each user's inspections, projects, and history are completely isolated from other users. Access to the application is controlled through an admin-managed approval system with granular permission controls and usage limits.
 
 **Permission System**: The application implements a comprehensive permission checking system that enforces user access controls and usage limits before allowing inspections or project creation. Users receive real-time feedback about their permission status and current usage limits.
 
@@ -15,15 +15,20 @@ Font Inspector is a **Desktop Application** built with Electron that analyzes we
 ## Site Map & Page Structure
 
 ### 0. Authentication & Access Control
-- **Login Page**: Google Sign-In authentication required to access the application.
-- **Access Request System**: New users must request access through a dedicated request form.
-- **Admin Approval**: Access requests require approval from system administrators.
-- **User Profile**: Dropdown menu in header showing user avatar, name, email, current usage statistics, app version, and logout option.
+- **Multi-Authentication Support**: Users can authenticate using either Google Sign-In or email/password authentication.
+- **Email Registration System**: New users can create accounts using email/password with admin approval workflow.
+- **Google Authentication**: Traditional Google OAuth authentication with popup-based sign-in flow.
+- **Access Request System**: Both authentication methods require admin approval before users can access the application.
+- **Admin Approval Workflow**: 
+  - **Google Users**: Submit access requests through dedicated request form, admin approval grants immediate access
+  - **Email Users**: Submit registration requests with name/email/password, admin approval creates Firebase account and grants access
+- **User Profile**: Dropdown menu in header showing user avatar, name, email, authentication provider, current usage statistics, app version, and logout option.
 - **Permission Checking**: Real-time permission validation before allowing inspections or project creation.
 - **Usage Limits**: Monthly limits for inspections and projects set by administrators with live usage tracking.
 - **Permission Feedback**: Clear visual feedback when users lack permissions or exceed limits.
 - **Data Privacy**: All user data (inspections, projects, history) is completely isolated per user.
 - **Permission Management**: User access and usage limits are managed through the admin system.
+- **Password Management**: Email users have access to password reset functionality through Firebase's built-in system.
 - **Graceful Degradation**: Forms and buttons are disabled when users don't have permission, with clear explanatory messages.
 
 ### 1. Home Page
@@ -123,18 +128,21 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Admin User Management**: System for creating and managing admin accounts.
 
 #### 2. Access Request Management
-- **Pending Requests**: Review and manage user access requests.
-- **Approval Workflow**: Approve or reject access requests with reasons and notes.
-- **Request History**: Track all access requests with status and review history.
-- **Batch Operations**: Efficiently manage multiple access requests.
+- **Google Access Requests**: Review and manage traditional Google OAuth access requests.
+- **Email Registration Requests**: Review and manage email/password registration requests with account creation workflow.
+- **Unified Approval Workflow**: Approve or reject both types of requests with reasons and notes.
+- **Request History**: Track all access requests and email registrations with status and review history.
+- **Account Creation**: Email registration approval automatically creates Firebase user accounts with proper authentication setup.
+- **Batch Operations**: Efficiently manage multiple access requests and registrations.
 
 #### 3. User Management
-- **User Overview**: Comprehensive view of all application users with status indicators.
+- **User Overview**: Comprehensive view of all application users with status indicators and authentication provider information.
+- **Authentication Provider Tracking**: Display whether users authenticated via Google OAuth or email/password.
 - **Permission Controls**: Manage user access permissions and monthly usage limits for inspections and projects.
 - **Usage Limit Configuration**: Set custom monthly limits for inspections and projects per user.
 - **User Suspension**: Temporarily suspend users with duration and reason tracking.
 - **Usage Analytics**: Monitor user activity, inspections, and project creation with real-time usage tracking.
-- **Profile Editing**: Edit user profiles, permissions, usage limits, and administrative notes.
+- **Profile Editing**: Edit user profiles, permissions, usage limits, and administrative notes for both authentication types.
 - **Bulk Operations**: Efficiently manage multiple users with batch permission updates and bulk inspection/project limit modifications.
 - **Version Analytics**: Track user adoption of different app versions and monitor upgrade patterns.
 
@@ -171,7 +179,7 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Styling**: Tailwind CSS
 - **UI Components**: Shadcn/UI
 - **State Management**: React Context
-- **Authentication**: Firebase Authentication with Google Sign-In (with Electron-specific auth flow)
+- **Authentication**: Firebase Authentication with Google Sign-In and email/password support (with Electron-specific auth flow)
 - **Permissions**: Custom permission management system for macOS integration
 
 ### Backend:
@@ -196,6 +204,7 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Styling**: Tailwind CSS with Shadcn/UI components
 - **Authentication**: Firebase Authentication with admin role verification
 - **Database**: Firebase/Firestore for admin collections (user management, permissions, statistics)
+- **API Architecture**: Independent API endpoints using Firebase Admin SDK (no dependency on main app APIs)
 - **Deployment**: Independent deployment from main desktop application
 - **Security**: Role-based access control and admin-only routes
 
@@ -244,17 +253,23 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **Error Handling**: Comprehensive browser launch error handling with user-friendly messages
 
 ### 4. User Authentication & Access Control
-- **Google Authentication**: Secure sign-in using Google OAuth through Firebase Auth with Electron-specific flow
-- **Native Auth Popups**: Seamless authentication experience with properly sized popup windows
-- **Admin-Controlled Access**: New users must request access through a dedicated system
+- **Multi-Method Authentication**: Support for both Google OAuth and email/password authentication through Firebase Auth with Electron-specific flow
+- **Google Authentication**: Traditional Google OAuth with secure popup-based sign-in flow
+- **Email/Password Authentication**: Full email/password authentication with registration, sign-in, and password reset capabilities
+- **Native Auth Popups**: Seamless authentication experience with properly sized popup windows for both authentication methods
+- **Admin-Controlled Access**: All new users must request access through dedicated systems regardless of authentication method
+- **Registration Workflows**: 
+  - **Google Users**: Submit access requests, admin approval grants immediate access
+  - **Email Users**: Submit registration requests with account details, admin approval creates Firebase account
 - **User Data Isolation**: Complete separation of user data - users can only access their own inspections, projects, and history
 - **Authentication Gates**: All app functionality requires authentication - unauthenticated users see only the login page
 - **Secure API Access**: All API endpoints require valid Firebase ID tokens and enforce user-based access control
-- **User Profile Management**: Display user information (name, email, avatar) and logout functionality in desktop interface
+- **User Profile Management**: Display user information (name, email, avatar, authentication provider) and logout functionality in desktop interface
 - **Permission System**: User access permissions and usage limits managed through admin system
 - **Real-time Permission Checking**: Live validation of user permissions before API operations
 - **Usage Limit Enforcement**: Monthly limits for inspections and projects with automatic enforcement
 - **Permission Feedback**: Clear visual indicators when users lack permissions or exceed limits
+- **Password Management**: Built-in password reset functionality for email/password users
 - **Graceful Permission Handling**: UI components disabled when permissions are insufficient with explanatory messages
 
 ### 5. User Interface & Experience
@@ -376,7 +391,9 @@ The admin system is a separate Next.js web application that provides comprehensi
 ### 5. Admin System Development:
 - **Next.js Admin App**: Build separate web-based admin application with React and TypeScript
 - **Admin Authentication**: Implement Firebase auth with admin role verification and secure login
+- **Independent API Layer**: Create dedicated API endpoints using Firebase Admin SDK for all admin operations
 - **User Management System**: Create comprehensive user management with access control and permissions
+- **Email Registration Management**: Implement server-side email/password user creation and approval system
 - **Activity Logging**: Implement real-time activity monitoring and audit trail functionality
 - **Dashboard Analytics**: Build analytics dashboard for user statistics and system monitoring with version tracking capabilities
 - **Bulk Operations Interface**: Implement bulk user management interface for efficient permission and limit updates
@@ -408,7 +425,23 @@ The admin system is a separate Next.js web application that provides comprehensi
 
 ## Recent Major Updates
 
-### Database System Overhaul (Latest)
+### Email/Password Authentication Implementation (Latest)
+- **Multi-Method Authentication**: Implemented comprehensive email/password authentication alongside existing Google OAuth system
+- **Email Registration System**: Created complete user registration workflow with admin approval process for email/password accounts
+- **Admin Account Creation**: Email registration approval automatically creates Firebase user accounts with proper authentication setup
+- **Enhanced Login Interface**: Updated login page to support both authentication methods with seamless switching between Google and email options
+- **Password Management**: Implemented secure password reset functionality using Firebase's built-in password reset system
+- **Registration Validation**: Comprehensive form validation including email format validation, password strength requirements (6+ characters), and duplicate account checking
+- **Admin Integration**: Extended admin system to manage both Google access requests and email registration requests in unified workflow
+- **Authentication Context Enhancement**: Updated AuthContext to support email authentication methods (`signInWithEmail`, `resetPassword`) while maintaining existing Google OAuth functionality
+- **User Profile Extensions**: Extended user profiles to track authentication provider (Google vs email/password) for proper user management
+- **Security Features**: Implemented secure temporary password storage for admin approval workflow with automatic cleanup after account creation
+- **Error Handling**: Comprehensive error handling for email authentication including user-friendly error messages for various authentication failure scenarios
+- **Webhook Integration**: Added webhook notifications for new email registration requests to notify administrators
+- **Data Model Extensions**: Created new Firebase collections (`email_registrations`) and extended user data models to support email authentication
+- **Backward Compatibility**: Maintained full backward compatibility with existing Google authentication while adding new email authentication options
+
+### Database System Overhaul
 - **Local SQLite Implementation**: Complete migration from Firebase/Firestore to local SQLite databases for inspection and project data storage
 - **Cost Optimization**: Eliminated Firebase storage costs by moving all inspection data to local storage while maintaining authentication and admin features
 - **User Data Isolation**: Each user gets their own SQLite database file (`~/FontInspector/databases/{userId}.db`) for complete data separation
@@ -500,10 +533,13 @@ The admin system is a separate Next.js web application that provides comprehensi
 - **User Guidance**: Created comprehensive permission management UI with direct settings access
 
 ### Authentication Enhancement
-- **Electron-Optimized Auth**: Adapted Firebase authentication for optimal Electron experience
-- **Native Popup Handling**: Implemented proper authentication popup window management
+- **Multi-Method Authentication**: Implemented comprehensive authentication system supporting both Google OAuth and email/password
+- **Electron-Optimized Auth**: Adapted Firebase authentication for optimal Electron experience with both authentication methods
+- **Native Popup Handling**: Implemented proper authentication popup window management for Google OAuth
+- **Email Authentication Flow**: Built complete email/password authentication with registration, sign-in, and password reset
+- **Admin Registration Workflow**: Created admin-managed approval system for email/password account creation
 - **Secure IPC**: Enhanced security for authentication token handling between processes
-- **Seamless Integration**: Maintained existing authentication flow while adding desktop-specific enhancements
+- **Seamless Integration**: Maintained existing authentication flow while adding new authentication methods and desktop-specific enhancements
 
 ### Admin System Implementation
 - **Comprehensive User Management**: Built full-featured admin web application for user access control and management

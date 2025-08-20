@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createUserInvitation } from "@/lib/models/admin-service";
 import { InvitationRequest } from "@/lib/models/admin";
+import { sendNewUserWebhook } from "@/lib/webhook-utils";
 
 // POST /api/request-access - Submit access request
 export async function POST(request: Request) {
@@ -29,6 +30,9 @@ export async function POST(request: Request) {
     const invitation = await createUserInvitation({ name, email });
 
     console.log(`New access request submitted: ${name} (${email})`);
+
+    // Send webhook notification for new access request
+    await sendNewUserWebhook(email.toLowerCase());
 
     return NextResponse.json({
       success: true,

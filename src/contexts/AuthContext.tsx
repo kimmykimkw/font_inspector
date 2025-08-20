@@ -8,7 +8,9 @@ import {
   getRedirectResult,
   signOut,
   onAuthStateChanged,
-  GoogleAuthProvider
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { firestoreDb, auth } from '@/lib/firebase-client';
 import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
@@ -32,6 +34,7 @@ export interface UserProfile {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  authProvider: 'google' | 'email_password';
   createdAt?: any;
   lastLoginAt?: any;
   appVersion?: string;
@@ -42,6 +45,8 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -163,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Create or update user profile in Firestore
-  const createUserProfile = async (user: User) => {
+  const createUserProfile = async (user: User, authProvider: 'google' | 'email_password' = 'google') => {
     if (!firestoreDb) return null;
 
     try {
@@ -185,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: user.email,
         displayName: user.displayName,
         photoURL: user.photoURL,
+        authProvider,
         lastLoginAt: serverTimestamp(),
         appVersion: getCurrentAppVersion(),
       };
@@ -301,6 +307,69 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Sign in with Email/Password
+  const signInWithEmail = async (email: string, password: string) => {
+    if (!auth) {
+      throw new Error('Auth not initialized');
+    }
+    
+    try {
+      setLoading(true);
+      console.log('Attempting email/password sign-in...');
+      
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Email sign-in successful');
+      await createUserProfile(result.user, 'email_password');
+      
+    } catch (error: any) {
+      // Check if user is not authorized first (don't log this)
+      if (error.message === 'UNAUTHORIZED_USER') {
+        throw new Error('Your account does not have access to Font Inspector. Please contact an administrator.');
+      }
+      
+      console.error('Email sign-in failed:', error);
+      
+      // Handle Firebase auth errors
+      if (error.code === 'auth/user-not-found') {
+        throw new Error('No account found with this email address.');
+      } else if (error.code === 'auth/wrong-password') {
+        throw new Error('Incorrect password. Please try again.');
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error('Invalid email address.');
+      } else if (error.code === 'auth/user-disabled') {
+        throw new Error('This account has been disabled.');
+      } else if (error.code === 'auth/too-many-requests') {
+        throw new Error('Too many failed attempts. Please try again later.');
+      } else {
+        throw new Error('Authentication failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reset password
+  const resetPassword = async (email: string) => {
+    if (!auth) {
+      throw new Error('Auth not initialized');
+    }
+    
+    try {
+      await sendPasswordResetEmail(auth, email);
+      console.log('Password reset email sent');
+    } catch (error: any) {
+      console.error('Password reset failed:', error);
+      
+      if (error.code === 'auth/user-not-found') {
+        throw new Error('No account found with this email address.');
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error('Invalid email address.');
+      } else {
+        throw new Error('Failed to send password reset email. Please try again.');
+      }
+    }
+  };
+
   // Sign out
   const logout = async () => {
     if (!auth) {
@@ -386,6 +455,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     userProfile,
     loading,
     signInWithGoogle,
+    signInWithEmail,
+    resetPassword,
     logout,
   };
 

@@ -67,6 +67,27 @@ export interface UserStats {
   isActive: boolean;
 }
 
+// Email registration interface (for email/password users)
+export interface EmailRegistration {
+  id?: string;
+  name: string;
+  email: string;
+  status: 'pending' | 'approved' | 'rejected';
+  registrationType: 'email_password';
+  requestedAt: Timestamp | Date;
+  reviewedAt?: Timestamp | Date;
+  reviewedBy?: string; // Admin user ID who reviewed
+  rejectionReason?: string;
+  approvalNotes?: string;
+}
+
+// Email registration request data (for frontend forms)
+export interface EmailRegistrationRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
 // Invitation request data (for frontend forms)
 export interface InvitationRequest {
   name: string;

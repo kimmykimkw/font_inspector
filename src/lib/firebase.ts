@@ -138,6 +138,7 @@ export const collections = {
   users: db.collection('users'),
   // Admin system collections
   user_invitations: db.collection('user_invitations'),
+  email_registrations: db.collection('email_registrations'),
   admin_users: db.collection('admin_users'),
   user_stats: db.collection('user_stats'),
   user_permissions: db.collection('user_permissions'),
